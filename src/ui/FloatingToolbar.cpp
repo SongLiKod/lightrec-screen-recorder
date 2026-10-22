@@ -125,6 +125,13 @@ FloatingToolbar::FloatingToolbar(QWidget *parent)
     for (QToolButton *button : findChildren<QToolButton *>())
         button->installEventFilter(this);
     installEventFilter(this);
+
+    m_hintLabel = new QLabel(this);
+    m_hintLabel->setWordWrap(true);
+    m_hintLabel->setText(QStringLiteral(
+        "标注/高亮/放大：点击开启，再次点击或按 Esc 退出  ·  拖动工具栏可移动"));
+    m_outerLayout->addWidget(m_hintLabel);
+
     setState(RecordState::Idle);
     setScale(150);
 }

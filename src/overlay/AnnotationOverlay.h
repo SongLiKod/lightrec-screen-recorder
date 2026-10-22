@@ -59,6 +59,8 @@ signals:
     void overlayVisibilityRequested(bool visible);
     void spotlightRectChanged(const QRect &rect);
     void magnifierRectChanged(const QRect &rect);
+    void spotlightExitRequested();
+    void magnifierExitRequested();
 
 protected:
     void paintEvent(QPaintEvent *event) override;

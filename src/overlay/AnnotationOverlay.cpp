@@ -249,19 +249,25 @@ void AnnotationOverlay::mousePressEvent(QMouseEvent *event)
     }
 
     if (m_tool == AnnotationTool::Text) {
-        bool ok = false;
-        const QString text = QInputDialog::getText(this, QStringLiteral("文字标注"),
-                                                   QStringLiteral("输入标注文字："),
-                                                   QLineEdit::Normal, QString(), &ok);
-        if (ok && !text.isEmpty()) {
+        QInputDialog dialog(nullptr);
+        dialog.setWindowTitle(QStringLiteral("文字标注"));
+        dialog.setLabelText(QStringLiteral("输入标注文字："));
+        dialog.setInputMode(QInputDialog::TextInput);
+        dialog.setWindowFlag(Qt::WindowStaysOnTopHint, true);
+        dialog.setWindowModality(Qt::ApplicationModal);
+        dialog.resize(420, 160);
+        dialog.raise();
+        dialog.activateWindow();
+        if (dialog.exec() == QDialog::Accepted && !dialog.textValue().isEmpty()) {
             AnnotationStroke stroke;
             stroke.tool = AnnotationTool::Text;
             stroke.color = m_penColor;
             stroke.width = m_penWidth;
             stroke.start = toGlobal(event->position());
             stroke.end = stroke.start;
-            stroke.text = text;
-            stroke.font = QFont(QStringLiteral("Microsoft YaHei UI"), 12 + m_penWidth * 3, QFont::DemiBold);
+            stroke.text = dialog.textValue();
+            stroke.font = QFont(QStringLiteral("Microsoft YaHei UI"), 12 + m_penWidth * 3,
+                                QFont::DemiBold);
             m_model->addStroke(stroke);
         }
         return;
@@ -353,9 +359,21 @@ void AnnotationOverlay::mouseReleaseEvent(QMouseEvent *event)
 
 void AnnotationOverlay::keyPressEvent(QKeyEvent *event)
 {
-    if (event->key() == Qt::Key_Escape && m_drawingEnabled) {
-        setDrawingEnabled(false);
-        return;
+    if (event->key() == Qt::Key_Escape) {
+        if (m_spotlightEnabled) {
+            setSpotlightEnabled(false);
+            emit spotlightExitRequested();
+            return;
+        }
+        if (m_magnifierEnabled) {
+            setMagnifierEnabled(false);
+            emit magnifierExitRequested();
+            return;
+        }
+        if (m_drawingEnabled) {
+            setDrawingEnabled(false);
+            return;
+        }
     }
     QWidget::keyPressEvent(event);
 }

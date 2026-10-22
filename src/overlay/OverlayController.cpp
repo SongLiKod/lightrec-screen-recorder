@@ -71,6 +71,10 @@ OverlayController::OverlayController(QObject *parent)
         refreshCompositor();
         emit configChanged(m_config);
     });
+    connect(m_overlay, &AnnotationOverlay::spotlightExitRequested,
+            this, [this] { setSpotlightEnabled(false); });
+    connect(m_overlay, &AnnotationOverlay::magnifierExitRequested,
+            this, [this] { setMagnifierEnabled(false); });
 
     connect(m_camera, &CameraManager::frameReady, this, [this](const QImage &frame) {
         m_compositor.setCameraFrame(frame);

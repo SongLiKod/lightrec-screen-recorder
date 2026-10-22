@@ -69,28 +69,36 @@ void CountdownWindow::paintEvent(QPaintEvent *event)
     Q_UNUSED(event)
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setRenderHint(QPainter::TextAntialiasing, true);
 
-    painter.setPen(QPen(QColor(0x2D, 0x8C, 0xF0, 180), 2));
-    painter.setBrush(QColor(15, 20, 27, 242));
-    painter.drawRoundedRect(QRectF(rect()).adjusted(1, 1, -1, -1), 18, 18);
+    // Keep the countdown transparent: only the text is drawn, with a soft
+    // dark outline so it stays readable on any desktop background.
+    auto drawShadowed = [&painter](const QRect &rect, const QString &text,
+                                   const QColor &color, const QFont &font, int blur) {
+        painter.setFont(font);
+        painter.setPen(QColor(0, 0, 0, 150));
+        for (int dx = -blur; dx <= blur; ++dx) {
+            for (int dy = -blur; dy <= blur; ++dy) {
+                if (dx == 0 && dy == 0)
+                    continue;
+                painter.drawText(rect.translated(dx, dy), Qt::AlignCenter, text);
+            }
+        }
+        painter.setPen(color);
+        painter.drawText(rect, Qt::AlignCenter, text);
+    };
 
     QFont numberFont(QStringLiteral("Microsoft YaHei UI"), 92, QFont::Bold);
-    painter.setFont(numberFont);
-    painter.setPen(Qt::white);
-    painter.drawText(QRect(0, 20, width(), 130), Qt::AlignCenter,
-                     QString::number(m_remaining));
+    drawShadowed(QRect(0, 10, width(), 150), QString::number(m_remaining),
+                 Qt::white, numberFont, 2);
 
     QFont titleFont(QStringLiteral("Microsoft YaHei UI"), 17, QFont::DemiBold);
-    painter.setFont(titleFont);
-    painter.setPen(QColor(0xE6, 0xED, 0xF6));
-    painter.drawText(QRect(0, 154, width(), 28), Qt::AlignCenter,
-                     QStringLiteral("即将开始录制"));
+    drawShadowed(QRect(0, 164, width(), 28), QStringLiteral("即将开始录制"),
+                 QColor(0xE6, 0xED, 0xF6), titleFont, 1);
 
     QFont hintFont(QStringLiteral("Microsoft YaHei UI"), 11);
-    painter.setFont(hintFont);
-    painter.setPen(QColor(0x8F, 0x9D, 0xB0));
-    painter.drawText(QRect(0, 188, width(), 24), Qt::AlignCenter,
-                     QStringLiteral("按 Esc 或空格取消"));
+    drawShadowed(QRect(0, 198, width(), 24), QStringLiteral("按 Esc 或空格取消"),
+                 QColor(0xB8, 0xC6, 0xD8), hintFont, 1);
 }
 
 } // namespace lightrec

@@ -41,6 +41,7 @@
 #include <QPushButton>
 #include <QScreen>
 #include <QStackedWidget>
+#include <QThread>
 #include <QTimer>
 #include <QVBoxLayout>
 
@@ -310,6 +311,9 @@ void MainWindow::wireSignals()
     connect(m_toolbar, &FloatingToolbar::stopRequested, this, &MainWindow::stopRecording);
     connect(m_toolbar, &FloatingToolbar::drawToggled, this, [this](bool enabled) {
         m_overlay->setDrawingEnabled(enabled);
+        m_toolbar->setHint(enabled
+                               ? QStringLiteral("标注模式：顶部工具条选择画笔/直线/箭头/矩形/圆形/文字；点击“退出”或按 Esc 结束")
+                               : QStringLiteral("标注已关闭 · 高亮/放大：拖拽选框调整 · 再次点击按钮或 Esc 退出"));
     });
     connect(m_toolbar, &FloatingToolbar::overlaysToggled, this, [this](bool visible) {
         m_overlay->setOverlaysVisible(visible);
@@ -324,7 +328,12 @@ void MainWindow::wireSignals()
         if (enabled) {
             m_toolbar->setMagnifierEnabled(false);
             m_toolbar->setDrawEnabled(false);
+            m_toolbar->setHint(QStringLiteral(
+                "局部高亮已开启：拖动选框调整高亮区域；再次点击“高亮”或按 Esc 退出"));
             m_toolbar->showMessage(QStringLiteral("局部高亮已开启，拖动选框调整高亮区域"));
+        } else {
+            m_toolbar->setHint(QStringLiteral(
+                "标注/高亮/放大：点击开启，再次点击或按 Esc 退出  ·  拖动工具栏可移动"));
         }
     });
     connect(m_toolbar, &FloatingToolbar::magnifierToggled, this, [this](bool enabled) {
@@ -332,7 +341,12 @@ void MainWindow::wireSignals()
         if (enabled) {
             m_toolbar->setSpotlightEnabled(false);
             m_toolbar->setDrawEnabled(false);
+            m_toolbar->setHint(QStringLiteral(
+                "局部放大已开启：拖动选框选择放大区域；再次点击“放大”或按 Esc 退出"));
             m_toolbar->showMessage(QStringLiteral("局部放大已开启，拖动选框选择放大区域"));
+        } else {
+            m_toolbar->setHint(QStringLiteral(
+                "标注/高亮/放大：点击开启，再次点击或按 Esc 退出  ·  拖动工具栏可移动"));
         }
     });
     connect(m_toolbar, &FloatingToolbar::adjustRegionRequested, this, &MainWindow::adjustRegion);
@@ -344,6 +358,10 @@ void MainWindow::wireSignals()
 
     connect(m_overlay, &OverlayController::drawingEnabledChanged, this, [this](bool enabled) {
         m_toolbar->setDrawEnabled(enabled);
+        if (enabled) {
+            m_toolbar->setHint(QStringLiteral(
+                "标注模式：顶部工具条选择画笔/直线/箭头/矩形/圆形/文字；点击“退出”或按 Esc 结束"));
+        }
         m_toolbar->raise();
         WindowUtils::setTopmost(m_toolbar->winId(), true);
     }, Qt::QueuedConnection);
@@ -554,6 +572,16 @@ RecordOptions MainWindow::currentOptions() const
 
 void MainWindow::startRecording(const StreamConfig *streamOverride)
 {
+    // UI Automation and some integrations can invoke this slot from a helper
+    // thread. All recording windows and timers must be created on the GUI thread.
+    if (QThread::currentThread() != thread()) {
+        const bool hasStream = streamOverride != nullptr;
+        const StreamConfig stream = hasStream ? *streamOverride : StreamConfig();
+        QMetaObject::invokeMethod(this, [this, hasStream, stream] {
+            startRecording(hasStream ? &stream : nullptr);
+        }, Qt::QueuedConnection);
+        return;
+    }
     if (m_controller->state() != RecordState::Idle) {
         m_recordPage->setStatusText(QStringLiteral("当前已有录制任务在进行"));
         return;
