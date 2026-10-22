@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>LightRec 局域网直播</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #0d1117; color: #e6edf3;
+    font-family: "Microsoft YaHei UI", "Segoe UI", system-ui, sans-serif; }
+  body { display: flex; flex-direction: column; }
+  header { display: flex; align-items: center; gap: 12px; padding: 12px 18px;
+    background: #161b22; border-bottom: 1px solid #232b36; }
+  .brand { display: flex; align-items: center; gap: 9px; font-weight: 700; letter-spacing: .5px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #2d8cf0;
+    box-shadow: 0 0 10px #2d8cf0; animation: pulse 1.6s infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .meta { margin-left: auto; display: flex; gap: 18px; font-size: 13px; color: #9aa7b8; }
+  .meta b { color: #e6edf3; }
+  main { flex: 1; display: flex; align-items: center; justify-content: center;
+    padding: 14px; min-height: 0; }
+  .frame { position: relative; max-width: 100%; max-height: 100%; background: #000;
+    border-radius: 12px; overflow: hidden; box-shadow: 0 18px 50px rgba(0,0,0,.55); }
+  img { display: block; max-width: 100%; max-height: calc(100vh - 140px); width: auto; height: auto; }
+  .hint { position: absolute; inset: 0; display: flex; align-items: center;
+    justify-content: center; color: #8b98a9; font-size: 15px; pointer-events: none; }
+  footer { padding: 10px 18px 16px; color: #6f7d8f; font-size: 12px; text-align: center; }
+  button { background: #2d8cf0; border: 0; color: #fff; border-radius: 8px;
+    padding: 8px 14px; font-size: 13px; cursor: pointer; }
+  button:hover { background: #3d9bf5; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="dot"></span>LightRec 局域网直播</div>
+  <div class="meta">
+    <span>在线观看 <b id="viewers">0</b> / <span id="max">16</span></span>
+    <button id="fullscreen">全屏</button>
+  </div>
+</header>
+<main>
+  <div class="frame" id="frame">
+    <img id="stream" src="/stream.mjpg" alt="直播画面">
+    <div class="hint" id="hint">正在等待画面…</div>
+  </div>
+</main>
+<footer>画面通过局域网直连，不会上传到云端。若无法观看，请在 Windows 防火墙中允许 LightRec 访问专用网络。</footer>
+<script>
+  const img = document.getElementById('stream');
+  const hint = document.getElementById('hint');
+  img.addEventListener('load', () => { hint.style.display = 'none'; });
+  img.addEventListener('error', () => { hint.textContent = '连接已断开，请刷新页面重试'; hint.style.display = 'flex'; });
+  document.getElementById('fullscreen').addEventListener('click', () => {
+    const frame = document.getElementById('frame');
+    if (!document.fullscreenElement) frame.requestFullscreen();
+    else document.exitFullscreen();
+  });
+  async function refresh() {
+    try {
+      const res = await fetch('/api/status', { cache: 'no-store' });
+      const data = await res.json();
+      document.getElementById('viewers').textContent = data.viewers;
+      document.getElementById('max').textContent = data.maxViewers;
+    } catch (e) { }
+  }
+  refresh();
+  setInterval(refresh, 3000);
+</script>
+</body>
+</html>

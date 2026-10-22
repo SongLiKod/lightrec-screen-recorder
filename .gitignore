@@ -1,0 +1,11 @@
+build/
+build-*/
+dist/
+*.user
+*.user.*
+*.part
+*.mp4
+*.zip
+third_party/ffmpeg/
+.vs/
+CMakeUserPresets.json
