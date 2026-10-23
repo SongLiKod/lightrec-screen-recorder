@@ -5,9 +5,12 @@
 #include <QList>
 #include <QMainWindow>
 
+class QAction;
 class QCloseEvent;
+class QMenu;
 class QStackedWidget;
 class QPushButton;
+class QSystemTrayIcon;
 
 namespace lightrec {
 
@@ -48,6 +51,11 @@ private:
     void buildNavigation();
     void wireSignals();
     void registerHotkeys();
+    void setupTray();
+    void showFromTray();
+    void quitFromTray();
+    void shutdownApplication();
+    void updateTrayState(RecordState state);
 
     RecordOptions currentOptions() const;
     OverlayConfig mergedOverlay() const;
@@ -77,6 +85,9 @@ private:
     CountdownWindow *m_countdown = nullptr;
     CaptureBorderWindow *m_captureBorder = nullptr;
     QTimer *m_captureBorderTimer = nullptr;
+    QSystemTrayIcon *m_tray = nullptr;
+    QMenu *m_trayMenu = nullptr;
+    QAction *m_trayRecordAction = nullptr;
 
     QStackedWidget *m_pages = nullptr;
     RecordPage *m_recordPage = nullptr;
@@ -91,6 +102,8 @@ private:
     QString m_activeTaskId;
     CaptureMode m_borderMode = CaptureMode::FullScreen;
     bool m_closeAfterStop = false;
+    bool m_quitting = false;
+    bool m_trayHintShown = false;
     bool m_recoveryChecked = false;
     bool m_diagnosticMode = false;
     QMetaObject::Connection m_virtualCameraTap;

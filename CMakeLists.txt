@@ -16,6 +16,8 @@ if(NOT WIN32)
     message(FATAL_ERROR "LightRec targets Windows 10 1903+ / Windows 11 only.")
 endif()
 
+enable_language(RC)
+
 option(LIGHTREC_WITH_FFMPEG "Enable FFmpeg based recording and post processing" ON)
 option(LIGHTREC_ALLOW_NO_FFMPEG "Allow a UI-only build when FFmpeg is missing" OFF)
 option(LIGHTREC_ENABLE_WGC "Enable Windows Graphics Capture backend when C++/WinRT is available" ON)
@@ -76,6 +78,7 @@ endif()
 # ---------------------------------------------------------------------------
 set(LIGHTREC_SOURCES
     src/main.cpp
+    resources/lightrec.rc
 
     src/core/AppPaths.cpp
     src/core/ConfigStore.cpp
@@ -211,6 +214,12 @@ if(LIGHTREC_ENABLE_WGC)
 endif()
 
 qt_add_executable(LightRec WIN32 ${LIGHTREC_SOURCES} ${LIGHTREC_HEADERS})
+# windres resolves the ICON path relative to the build directory.
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/resources/icons/lightrec.ico
+    ${CMAKE_CURRENT_BINARY_DIR}/lightrec.ico
+    COPYONLY)
+
 qt_add_resources(LightRec "lightrec_assets"
     PREFIX "/"
     BASE "resources"

@@ -33,6 +33,9 @@ int main(int argc, char *argv[])
 #endif
 
     QApplication app(argc, argv);
+    // Closing the main window hides it to the system tray; the tray icon is
+    // the explicit way to quit the application.
+    app.setQuitOnLastWindowClosed(false);
     QApplication::setApplicationDisplayName(QStringLiteral("LightRec 轻录"));
     QApplication::setApplicationVersion(QStringLiteral("1.1.0"));
 

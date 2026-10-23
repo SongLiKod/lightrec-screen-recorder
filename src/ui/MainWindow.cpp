@@ -28,11 +28,14 @@
 #include "ui/Widgets.h"
 #include "virtualcam/VirtualCamera.h"
 
+#include <QAction>
 #include <QApplication>
 #include <QAbstractSpinBox>
 #include <QButtonGroup>
 #include <QCloseEvent>
 #include <QDialog>
+#include <QMenu>
+#include <QSystemTrayIcon>
 #include <QDialogButtonBox>
 #include <QFileInfo>
 #include <QFrame>
@@ -133,6 +136,7 @@ MainWindow::MainWindow(QWidget *parent)
     buildUi();
     wireSignals();
     registerHotkeys();
+    setupTray();
     qApp->installEventFilter(this);
 
     RecordOptions initial;
@@ -910,8 +914,97 @@ void MainWindow::updateCaptureBorder()
         m_captureBorder->showBorder(rect);
 }
 
+void MainWindow::setupTray()
+{
+    if (!QSystemTrayIcon::isSystemTrayAvailable())
+        return;
+    m_tray = new QSystemTrayIcon(WindowUtils::appIcon(), this);
+    m_trayMenu = new QMenu(this);
+    m_trayMenu->addAction(QStringLiteral("显示主界面"), this, &MainWindow::showFromTray);
+    m_trayRecordAction = m_trayMenu->addAction(QStringLiteral("开始录制"), this, [this] {
+        if (m_countdown)
+            cancelCountdown();
+        else if (m_controller->state() == RecordState::Idle)
+            startRecording();
+        else
+            stopRecording();
+    });
+    m_trayMenu->addSeparator();
+    m_trayMenu->addAction(QStringLiteral("退出 LightRec"), this, &MainWindow::quitFromTray);
+    m_tray->setContextMenu(m_trayMenu);
+    m_tray->setToolTip(QStringLiteral("LightRec 轻录"));
+    connect(m_tray, &QSystemTrayIcon::activated, this,
+            [this](QSystemTrayIcon::ActivationReason reason) {
+        if (reason == QSystemTrayIcon::Trigger || reason == QSystemTrayIcon::DoubleClick)
+            showFromTray();
+    });
+    m_tray->show();
+    updateTrayState(m_controller->state());
+}
+
+void MainWindow::showFromTray()
+{
+    showNormal();
+    raise();
+    activateWindow();
+}
+
+void MainWindow::quitFromTray()
+{
+    m_quitting = true;
+    if (m_countdown)
+        cancelCountdown();
+
+    const RecordState state = m_controller->state();
+    if (state == RecordState::Recording || state == RecordState::Starting) {
+        m_closeAfterStop = true;
+        m_controller->stop();
+        return;
+    }
+    if (state == RecordState::Stopping) {
+        m_closeAfterStop = true;
+        return;
+    }
+    shutdownApplication();
+    qApp->quit();
+}
+
+void MainWindow::shutdownApplication()
+{
+    if (m_livePage)
+        m_livePage->stopAll();
+    if (m_virtualCamera)
+        m_virtualCamera->stop();
+    if (m_recordDot)
+        m_recordDot->hide();
+    if (m_toolbar)
+        m_toolbar->hide();
+    if (m_tray)
+        m_tray->hide();
+    hide();
+}
+
+void MainWindow::updateTrayState(RecordState state)
+{
+    if (m_trayRecordAction) {
+        if (state == RecordState::Idle)
+            m_trayRecordAction->setText(QStringLiteral("开始录制"));
+        else if (state == RecordState::Stopping)
+            m_trayRecordAction->setText(QStringLiteral("正在保存录像…"));
+        else
+            m_trayRecordAction->setText(QStringLiteral("停止录制"));
+        m_trayRecordAction->setEnabled(state != RecordState::Stopping);
+    }
+    if (m_tray) {
+        m_tray->setToolTip(state == RecordState::Idle
+                               ? QStringLiteral("LightRec 轻录")
+                               : QStringLiteral("LightRec 轻录 · 正在录制"));
+    }
+}
+
 void MainWindow::handleStateChanged(RecordState state)
 {
+    updateTrayState(state);
     m_recordPage->setState(state);
     m_toolbar->setState(state);
     if (m_recordDot)
@@ -1164,6 +1257,43 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 
 void MainWindow::closeEvent(QCloseEvent *event)
 {
+    if (m_quitting) {
+        if (m_countdown)
+            cancelCountdown();
+        if (m_controller->state() == RecordState::Stopping) {
+            m_closeAfterStop = true;
+            event->ignore();
+            return;
+        }
+        if (m_controller->isRecording() || m_controller->state() == RecordState::Starting) {
+            m_closeAfterStop = true;
+            m_controller->stop();
+            event->ignore();
+            return;
+        }
+        shutdownApplication();
+        event->accept();
+        QTimer::singleShot(0, qApp, &QCoreApplication::quit);
+        return;
+    }
+
+    // The close button minimizes to the system tray by default. Recording is
+    // not interrupted; use the tray menu or the app's stop action to end it.
+    if (m_tray && m_tray->isVisible()) {
+        if (m_countdown)
+            cancelCountdown();
+        hide();
+        if (!m_trayHintShown) {
+            m_tray->showMessage(QStringLiteral("LightRec 轻录"),
+                                QStringLiteral("已最小化到托盘；右键托盘图标可退出程序。"),
+                                QSystemTrayIcon::Information, 2500);
+            m_trayHintShown = true;
+        }
+        event->ignore();
+        return;
+    }
+
+    // Fallback for systems without a usable tray area.
     if (m_countdown) {
         cancelCountdown();
         if (m_toolbar)

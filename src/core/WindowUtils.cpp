@@ -184,19 +184,33 @@ void WindowUtils::raiseWindow(WId windowId)
 
 QIcon WindowUtils::appIcon()
 {
-    QPixmap pixmap(64, 64);
-    pixmap.fill(Qt::transparent);
-    QPainter painter(&pixmap);
-    painter.setRenderHint(QPainter::Antialiasing, true);
-    painter.setPen(Qt::NoPen);
-    painter.setBrush(QColor(0x2D, 0x8C, 0xF0));
-    painter.drawRoundedRect(QRectF(4, 4, 56, 56), 14, 14);
-    painter.setBrush(Qt::white);
-    painter.drawEllipse(QPointF(32, 32), 13, 13);
-    painter.setBrush(QColor(0x2D, 0x8C, 0xF0));
-    painter.drawEllipse(QPointF(32, 32), 8, 8);
-    painter.end();
-    return QIcon(pixmap);
+    static const QIcon icon = [] {
+        QIcon result;
+        for (int size : { 16, 20, 24, 32, 40, 48, 64, 128, 256 }) {
+            QPixmap pixmap(size, size);
+            pixmap.fill(Qt::transparent);
+            QPainter painter(&pixmap);
+            painter.setRenderHint(QPainter::Antialiasing, true);
+            painter.setPen(Qt::NoPen);
+
+            const qreal inset = size * 0.09;
+            const QRectF circle(inset, inset, size - inset * 2, size - inset * 2);
+            painter.setBrush(QColor(0, 0, 0, 55));
+            painter.drawEllipse(circle.translated(0, size * 0.025));
+            painter.setBrush(QColor(0x2D, 0x8C, 0xF0));
+            painter.drawEllipse(circle);
+            painter.setBrush(Qt::NoBrush);
+            painter.setPen(QPen(QColor(255, 255, 255, 245), qMax(1.0, size * 0.028)));
+            painter.drawEllipse(circle);
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(Qt::white);
+            painter.drawEllipse(circle.center(), size * 0.09, size * 0.09);
+            painter.end();
+            result.addPixmap(pixmap);
+        }
+        return result;
+    }();
+    return icon;
 }
 
 } // namespace lightrec
