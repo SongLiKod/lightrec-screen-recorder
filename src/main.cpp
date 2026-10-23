@@ -21,6 +21,11 @@ int main(int argc, char *argv[])
     QGuiApplication::setHighDpiScaleFactorRoundingPolicy(
         Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
 
+    // The GUI thread is initialized as MTA for Media Foundation, which can
+    // make the Windows shell file dialog hang or open invisibly.  Use Qt's
+    // in-process dialogs for every QFileDialog call so Browse always works.
+    QCoreApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
+
 #ifdef Q_OS_WIN
     // Media Foundation (h264_mf/hevc_mf) requires MTA.  Qt's OLE usage only
     // needs STA for drag & drop, which LightRec does not use.

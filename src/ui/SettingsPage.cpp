@@ -420,8 +420,8 @@ void SettingsPage::buildUi()
 
 void SettingsPage::browseOutput()
 {
-    const QString dir = QFileDialog::getExistingDirectory(this, QStringLiteral("选择录像保存目录"),
-                                                          m_outputDir->text());
+    const QString dir = ui::directoryDialog(this, QStringLiteral("选择录像保存目录"),
+                                            m_outputDir->text());
     if (!dir.isEmpty())
         m_outputDir->setText(dir);
 }

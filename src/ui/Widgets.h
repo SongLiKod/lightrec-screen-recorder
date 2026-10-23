@@ -2,6 +2,7 @@
 
 #include <QColor>
 #include <QString>
+#include <QStringList>
 
 class QFrame;
 class QLabel;
@@ -23,6 +24,13 @@ QWidget *labeledRow(const QString &label, QWidget *field, QWidget *parent = null
 QWidget *labeledRow(const QString &label, QWidget *field, int labelWidth, QWidget *parent = nullptr);
 void info(QWidget *parent, const QString &title, const QString &text);
 void warn(QWidget *parent, const QString &title, const QString &text);
+QString openFileDialog(QWidget *parent, const QString &title, const QString &directory = {},
+                       const QString &filter = {});
+QStringList openFilesDialog(QWidget *parent, const QString &title, const QString &directory = {},
+                            const QString &filter = {});
+QString saveFileDialog(QWidget *parent, const QString &title, const QString &path = {},
+                       const QString &filter = {});
+QString directoryDialog(QWidget *parent, const QString &title, const QString &directory = {});
 QString elidedPath(const QString &path, int maxLength = 52);
 
 } // namespace lightrec::ui

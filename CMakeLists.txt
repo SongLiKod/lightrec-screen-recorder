@@ -280,6 +280,10 @@ if(LIGHTREC_BUILD_TESTS AND FFMPEG_FOUND)
     target_include_directories(LightRecQrTest PRIVATE src)
     target_link_libraries(LightRecQrTest PRIVATE Qt6::Core Qt6::Gui)
 
+    qt_add_executable(LightRecFileDialogTest tests/FileDialogTest.cpp src/ui/Widgets.cpp)
+    target_include_directories(LightRecFileDialogTest PRIVATE src)
+    target_link_libraries(LightRecFileDialogTest PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test)
+
     find_package(Qt6 REQUIRED COMPONENTS Test)
     qt_add_executable(LightRecAnnotationTest
         tests/AnnotationOverlayTest.cpp

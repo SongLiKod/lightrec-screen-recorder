@@ -1,5 +1,7 @@
 #include "ui/Widgets.h"
 
+#include <QFileDialog>
+#include <QDialog>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QIcon>
@@ -122,6 +124,54 @@ void info(QWidget *parent, const QString &title, const QString &text)
 void warn(QWidget *parent, const QString &title, const QString &text)
 {
     QMessageBox::warning(parent, title, text);
+}
+
+QString openFileDialog(QWidget *parent, const QString &title, const QString &directory,
+                       const QString &filter)
+{
+    QFileDialog dialog(parent, title, directory, filter);
+    dialog.setOption(QFileDialog::DontUseNativeDialog, true);
+    dialog.setFileMode(QFileDialog::ExistingFile);
+    dialog.setAcceptMode(QFileDialog::AcceptOpen);
+    if (dialog.exec() != QDialog::Accepted)
+        return {};
+    return dialog.selectedFiles().value(0);
+}
+
+QStringList openFilesDialog(QWidget *parent, const QString &title, const QString &directory,
+                            const QString &filter)
+{
+    QFileDialog dialog(parent, title, directory, filter);
+    dialog.setOption(QFileDialog::DontUseNativeDialog, true);
+    dialog.setFileMode(QFileDialog::ExistingFiles);
+    dialog.setAcceptMode(QFileDialog::AcceptOpen);
+    if (dialog.exec() != QDialog::Accepted)
+        return {};
+    return dialog.selectedFiles();
+}
+
+QString saveFileDialog(QWidget *parent, const QString &title, const QString &path,
+                       const QString &filter)
+{
+    QFileDialog dialog(parent, title, path, filter);
+    dialog.setOption(QFileDialog::DontUseNativeDialog, true);
+    dialog.setFileMode(QFileDialog::AnyFile);
+    dialog.setAcceptMode(QFileDialog::AcceptSave);
+    if (dialog.exec() != QDialog::Accepted)
+        return {};
+    return dialog.selectedFiles().value(0);
+}
+
+QString directoryDialog(QWidget *parent, const QString &title, const QString &directory)
+{
+    QFileDialog dialog(parent, title, directory);
+    dialog.setOption(QFileDialog::DontUseNativeDialog, true);
+    dialog.setFileMode(QFileDialog::Directory);
+    dialog.setOption(QFileDialog::ShowDirsOnly, true);
+    dialog.setAcceptMode(QFileDialog::AcceptOpen);
+    if (dialog.exec() != QDialog::Accepted)
+        return {};
+    return dialog.selectedFiles().value(0);
 }
 
 QString elidedPath(const QString &path, int maxLength)

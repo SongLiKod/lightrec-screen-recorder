@@ -403,8 +403,8 @@ void RecordPage::buildUi()
         emit optionsChanged();
     });
     connect(m_pptButton, &QPushButton::clicked, this, [this] {
-        const QString path = QFileDialog::getOpenFileName(this, QStringLiteral("选择 PPT 辅助图片"),
-                                                          QString(), QStringLiteral("图片 (*.png *.jpg *.jpeg *.bmp)"));
+        const QString path = ui::openFileDialog(this, QStringLiteral("选择 PPT 辅助图片"),
+                                                QString(), QStringLiteral("图片 (*.png *.jpg *.jpeg *.bmp)"));
         if (!path.isEmpty()) {
             m_overlay.pptImagePath = path;
             m_pptButton->setText(QFileInfo(path).fileName());
@@ -519,8 +519,8 @@ void RecordPage::buildUi()
     scroll->setWidget(content);
 
     connect(browseButton, &QPushButton::clicked, this, [this] {
-        const QString dir = QFileDialog::getExistingDirectory(this, QStringLiteral("选择保存目录"),
-                                                              m_outputDirEdit->text());
+        const QString dir = ui::directoryDialog(this, QStringLiteral("选择保存目录"),
+                                                m_outputDirEdit->text());
         if (!dir.isEmpty()) {
             m_outputDirEdit->setText(dir);
             emit outputDirChanged(dir);

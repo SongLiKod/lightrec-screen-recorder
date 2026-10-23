@@ -438,8 +438,8 @@ QWidget *ToolboxPage::buildWatermarkPage()
     pageLayout->addWidget(scroll);
 
     connect(imageBrowse, &QPushButton::clicked, this, [this] {
-        const QString path = QFileDialog::getOpenFileName(this, QStringLiteral("选择水印图片"),
-                                                          QString(), QStringLiteral("图片 (*.png *.jpg *.jpeg *.bmp)"));
+        const QString path = ui::openFileDialog(this, QStringLiteral("选择水印图片"),
+                                                QString(), QStringLiteral("图片 (*.png *.jpg *.jpeg *.bmp)"));
         if (!path.isEmpty())
             m_watermarkImage->setText(path);
     });
@@ -457,8 +457,8 @@ QWidget *ToolboxPage::buildWatermarkPage()
         m_watermarkScaleLabel->setText(QStringLiteral("%1%").arg(value));
     });
     connect(addBatch, &QPushButton::clicked, this, [this] {
-        const QStringList files = QFileDialog::getOpenFileNames(this, QStringLiteral("添加批量水印文件"),
-                                                                QString(), QStringLiteral("视频 (*.mp4 *.mov *.mkv)"));
+        const QStringList files = ui::openFilesDialog(this, QStringLiteral("添加批量水印文件"),
+                                                      QString(), QStringLiteral("视频 (*.mp4 *.mov *.mkv)"));
         for (const QString &file : files)
             m_batchList->addItem(file);
     });
@@ -489,7 +489,7 @@ void ToolboxPage::updateCropControls()
 
 void ToolboxPage::browseInput()
 {
-    const QString path = QFileDialog::getOpenFileName(
+    const QString path = ui::openFileDialog(
         this, QStringLiteral("选择源文件"), QString(),
         QStringLiteral("媒体文件 (*.mp4 *.mov *.mkv *.part *.flv);;所有文件 (*.*)"));
     if (path.isEmpty())
@@ -503,8 +503,8 @@ void ToolboxPage::browseOutput()
     const QString extension = m_operation == Gif ? QStringLiteral("gif") : QStringLiteral("mp4");
     const QString filter = m_operation == Gif ? QStringLiteral("GIF (*.gif)")
                                               : QStringLiteral("MP4 (*.mp4)");
-    QString path = QFileDialog::getSaveFileName(this, QStringLiteral("选择输出文件"),
-                                                m_outputEdit->text(), filter);
+    QString path = ui::saveFileDialog(this, QStringLiteral("选择输出文件"),
+                                      m_outputEdit->text(), filter);
     if (!path.isEmpty()) {
         if (!path.endsWith(QLatin1Char('.') + extension, Qt::CaseInsensitive))
             path += QLatin1Char('.') + extension;
