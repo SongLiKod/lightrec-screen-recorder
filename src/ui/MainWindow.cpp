@@ -741,7 +741,40 @@ void MainWindow::startRecording(const StreamConfig *streamOverride)
 
     const int countdown = m_diagnosticMode ? 0 : ConfigStore::instance().countdownSeconds();
     if (countdown > 0) {
-        m_countdown = new CountdownWindow(countdown);
+        QString modeText;
+        QString detailText;
+        switch (options.video.mode) {
+        case CaptureMode::FullScreen: {
+            modeText = QStringLiteral("全屏录制");
+            const QList<QScreen *> screens = QGuiApplication::screens();
+            if (!screens.isEmpty()) {
+                QScreen *screen = screens.at(qBound(0, options.video.monitorIndex,
+                                                    screens.size() - 1));
+                if (screen) {
+                    detailText = QStringLiteral("显示器 %1 · %2 × %3")
+                                     .arg(screens.indexOf(screen) + 1)
+                                     .arg(screen->geometry().width())
+                                     .arg(screen->geometry().height());
+                }
+            }
+            if (detailText.isEmpty())
+                detailText = QStringLiteral("录制整个显示器");
+            break;
+        }
+        case CaptureMode::Window:
+            modeText = QStringLiteral("窗口录制");
+            detailText = options.video.windowTitle.isEmpty()
+                             ? QStringLiteral("跟随目标窗口")
+                             : QStringLiteral("窗口：%1").arg(options.video.windowTitle);
+            break;
+        case CaptureMode::Region:
+            modeText = QStringLiteral("自定义区域录制");
+            detailText = QStringLiteral("选区 %1 × %2")
+                             .arg(options.video.region.width())
+                             .arg(options.video.region.height());
+            break;
+        }
+        m_countdown = new CountdownWindow(countdown, modeText, detailText);
         connect(m_countdown, &CountdownWindow::finished, this, [this, options] {
             if (!m_countdown)
                 return; // canceled while the final timer tick was in flight

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QString>
 #include <QWidget>
 
 class QCloseEvent;
@@ -11,7 +12,8 @@ class CountdownWindow : public QWidget
 {
     Q_OBJECT
 public:
-    explicit CountdownWindow(int seconds, QWidget *parent = nullptr);
+    explicit CountdownWindow(int seconds, const QString &modeText = {},
+                             const QString &detailText = {}, QWidget *parent = nullptr);
 
     void start();
 
@@ -26,6 +28,8 @@ protected:
 
 private:
     int m_remaining = 0;
+    QString m_modeText;
+    QString m_detailText;
     QTimer *m_timer = nullptr;
 };
 

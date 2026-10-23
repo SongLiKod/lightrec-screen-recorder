@@ -4,6 +4,7 @@
 
 #include <QGuiApplication>
 #include <QCloseEvent>
+#include <QFontMetrics>
 #include <QKeyEvent>
 #include <QPainter>
 #include <QScreen>
@@ -11,16 +12,21 @@
 
 namespace lightrec {
 
-CountdownWindow::CountdownWindow(int seconds, QWidget *parent)
+CountdownWindow::CountdownWindow(int seconds, const QString &modeText,
+                                 const QString &detailText, QWidget *parent)
     : QWidget(parent)
     , m_remaining(qMax(1, seconds))
+    , m_modeText(modeText)
+    , m_detailText(detailText)
 {
     setWindowFlags(Qt::Window | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
     setAttribute(Qt::WA_TranslucentBackground, true);
     setAttribute(Qt::WA_ShowWithoutActivating, true);
     setAttribute(Qt::WA_DeleteOnClose, false);
     setWindowTitle(QStringLiteral("LightRec 录制倒计时"));
-    setFixedSize(460, 250);
+    if (m_modeText.isEmpty())
+        m_modeText = QStringLiteral("即将开始录制");
+    setFixedSize(500, 270);
 
     QScreen *screen = QGuiApplication::primaryScreen();
     if (screen) {
@@ -102,15 +108,21 @@ void CountdownWindow::paintEvent(QPaintEvent *event)
     };
 
     QFont numberFont(QStringLiteral("Microsoft YaHei UI"), 92, QFont::Bold);
-    drawShadowed(QRect(0, 10, width(), 150), QString::number(m_remaining),
+    drawShadowed(QRect(0, 0, width(), 150), QString::number(m_remaining),
                  Qt::white, numberFont, 2);
 
-    QFont titleFont(QStringLiteral("Microsoft YaHei UI"), 17, QFont::DemiBold);
-    drawShadowed(QRect(0, 164, width(), 28), QStringLiteral("即将开始录制"),
-                 QColor(0xE6, 0xED, 0xF6), titleFont, 1);
+    QFont modeFont(QStringLiteral("Microsoft YaHei UI"), 19, QFont::DemiBold);
+    drawShadowed(QRect(0, 154, width(), 30), m_modeText,
+                 QColor(0xB8, 0xDC, 0xFF), modeFont, 1);
 
-    QFont hintFont(QStringLiteral("Microsoft YaHei UI"), 11);
-    drawShadowed(QRect(0, 198, width(), 24), QStringLiteral("按 Esc 或空格取消"),
+    QFont detailFont(QStringLiteral("Microsoft YaHei UI"), 11);
+    const QFontMetrics detailMetrics(detailFont);
+    const QString detail = detailMetrics.elidedText(m_detailText, Qt::ElideMiddle, width() - 80);
+    drawShadowed(QRect(0, 186, width(), 24), detail,
+                 QColor(0xE6, 0xED, 0xF6), detailFont, 1);
+
+    QFont hintFont(QStringLiteral("Microsoft YaHei UI"), 10);
+    drawShadowed(QRect(0, 226, width(), 22), QStringLiteral("按 Esc 或空格取消"),
                  QColor(0xB8, 0xC6, 0xD8), hintFont, 1);
 }
 
