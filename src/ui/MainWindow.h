@@ -20,6 +20,7 @@ class VirtualCamera;
 class FloatingToolbar;
 class FloatingRecordDot;
 class CountdownWindow;
+class CaptureBorderWindow;
 class RecordPage;
 class FilesPage;
 class ToolboxPage;
@@ -40,6 +41,7 @@ public:
 
 protected:
     void closeEvent(QCloseEvent *event) override;
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     void buildUi();
@@ -53,6 +55,7 @@ private:
     void beginRecording(const RecordOptions &options);
     void cancelCountdown();
     void stopRecording();
+    void setVirtualCameraTap(bool enabled);
     void applyPreset(const Preset &preset);
     void selectRegion();
     void adjustRegion();
@@ -61,6 +64,7 @@ private:
     void handleStateChanged(RecordState state);
     void handleRecordingFinished(const QString &path, bool success, const QString &message);
     void checkRecovery();
+    void updateCaptureBorder();
 
     OverlayController *m_overlay = nullptr;
     RecordingController *m_controller = nullptr;
@@ -71,6 +75,8 @@ private:
     FloatingToolbar *m_toolbar = nullptr;
     FloatingRecordDot *m_recordDot = nullptr;
     CountdownWindow *m_countdown = nullptr;
+    CaptureBorderWindow *m_captureBorder = nullptr;
+    QTimer *m_captureBorderTimer = nullptr;
 
     QStackedWidget *m_pages = nullptr;
     RecordPage *m_recordPage = nullptr;
@@ -83,9 +89,11 @@ private:
     QList<QPushButton *> m_navButtons;
 
     QString m_activeTaskId;
+    CaptureMode m_borderMode = CaptureMode::FullScreen;
     bool m_closeAfterStop = false;
     bool m_recoveryChecked = false;
     bool m_diagnosticMode = false;
+    QMetaObject::Connection m_virtualCameraTap;
 };
 
 } // namespace lightrec

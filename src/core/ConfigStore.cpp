@@ -250,6 +250,26 @@ QString ConfigStore::hotkeyHideOverlay() const
     return hotkey(QStringLiteral("hideOverlay"));
 }
 
+QString ConfigStore::hotkeyCamera() const
+{
+    return hotkey(QStringLiteral("camera"));
+}
+
+QString ConfigStore::hotkeySpotlight() const
+{
+    return hotkey(QStringLiteral("spotlight"));
+}
+
+QString ConfigStore::hotkeyMagnifier() const
+{
+    return hotkey(QStringLiteral("magnifier"));
+}
+
+QString ConfigStore::hotkeyRegion() const
+{
+    return hotkey(QStringLiteral("region"));
+}
+
 void ConfigStore::setHotkey(const QString &action, const QString &sequence)
 {
     QSettings().setValue(QStringLiteral("hotkeys/") + action, sequence);
@@ -262,7 +282,11 @@ QString ConfigStore::hotkey(const QString &action) const
         { QStringLiteral("startStop"), QStringLiteral("Ctrl+Alt+R") },
         { QStringLiteral("pause"), QStringLiteral("Ctrl+Alt+P") },
         { QStringLiteral("draw"), QStringLiteral("Ctrl+Alt+D") },
-        { QStringLiteral("hideOverlay"), QStringLiteral("Ctrl+Alt+H") }
+        { QStringLiteral("hideOverlay"), QStringLiteral("Ctrl+Alt+H") },
+        { QStringLiteral("camera"), QStringLiteral("Ctrl+Alt+C") },
+        { QStringLiteral("spotlight"), QStringLiteral("Ctrl+Alt+S") },
+        { QStringLiteral("magnifier"), QStringLiteral("Ctrl+Alt+M") },
+        { QStringLiteral("region"), QStringLiteral("Ctrl+Alt+A") }
     };
     return QSettings().value(QStringLiteral("hotkeys/") + action,
                              defaults.value(action)).toString();
@@ -333,17 +357,22 @@ QJsonObject ConfigStore::videoToJson(const VideoConfig &config)
 VideoConfig ConfigStore::videoFromJson(const QJsonObject &object)
 {
     VideoConfig config;
-    config.mode = static_cast<CaptureMode>(object.value(QStringLiteral("mode")).toInt(0));
-    config.monitorIndex = object.value(QStringLiteral("monitorIndex")).toInt(0);
+    const int mode = object.value(QStringLiteral("mode")).toInt(0);
+    config.mode = (mode >= 0 && mode <= static_cast<int>(CaptureMode::Region))
+                      ? static_cast<CaptureMode>(mode)
+                      : CaptureMode::FullScreen;
+    config.monitorIndex = qMax(0, object.value(QStringLiteral("monitorIndex")).toInt(0));
     const QJsonArray region = object.value(QStringLiteral("region")).toArray();
     if (region.size() == 4)
         config.region = QRect(region.at(0).toInt(), region.at(1).toInt(),
                               region.at(2).toInt(), region.at(3).toInt());
     config.windowId = static_cast<WId>(object.value(QStringLiteral("windowId")).toVariant().toLongLong());
     config.windowTitle = object.value(QStringLiteral("windowTitle")).toString();
-    config.codec = object.value(QStringLiteral("codec")).toString(QStringLiteral("h264"));
-    config.fps = object.value(QStringLiteral("fps")).toInt(30);
-    config.bitrateKbps = object.value(QStringLiteral("bitrateKbps")).toInt(8000);
+    config.codec = object.value(QStringLiteral("codec")).toString(QStringLiteral("h264")).toLower();
+    if (config.codec != QStringLiteral("h265") && config.codec != QStringLiteral("hevc"))
+        config.codec = QStringLiteral("h264");
+    config.fps = qBound(1, object.value(QStringLiteral("fps")).toInt(30), 120);
+    config.bitrateKbps = qBound(500, object.value(QStringLiteral("bitrateKbps")).toInt(8000), 100000);
     config.captureCursor = object.value(QStringLiteral("captureCursor")).toBool(true);
     return config;
 }
@@ -369,8 +398,8 @@ AudioConfig ConfigStore::audioFromJson(const QJsonObject &object)
     config.systemDeviceId = object.value(QStringLiteral("systemDeviceId")).toString();
     config.micDeviceId = object.value(QStringLiteral("micDeviceId")).toString();
     config.noiseSuppression = object.value(QStringLiteral("noiseSuppression")).toBool(true);
-    config.micGainDb = object.value(QStringLiteral("micGainDb")).toInt(0);
-    config.systemGainDb = object.value(QStringLiteral("systemGainDb")).toInt(0);
+    config.micGainDb = qBound(-20, object.value(QStringLiteral("micGainDb")).toInt(0), 20);
+    config.systemGainDb = qBound(-20, object.value(QStringLiteral("systemGainDb")).toInt(0), 20);
     return config;
 }
 
@@ -415,27 +444,30 @@ OverlayConfig ConfigStore::overlayFromJson(const QJsonObject &object)
 {
     OverlayConfig config;
     config.penColor = colorFromString(object.value(QStringLiteral("penColor")).toString(), config.penColor);
-    config.penWidth = object.value(QStringLiteral("penWidth")).toInt(4);
+    config.penWidth = qBound(1, object.value(QStringLiteral("penWidth")).toInt(4), 40);
     config.showMouseHighlight = object.value(QStringLiteral("showMouseHighlight")).toBool(true);
-    config.mouseSize = object.value(QStringLiteral("mouseSize")).toInt(48);
+    config.mouseSize = qBound(16, object.value(QStringLiteral("mouseSize")).toInt(48), 200);
     config.leftClickColor = colorFromString(object.value(QStringLiteral("leftClickColor")).toString(), config.leftClickColor);
     config.rightClickColor = colorFromString(object.value(QStringLiteral("rightClickColor")).toString(), config.rightClickColor);
-    config.clickDurationMs = object.value(QStringLiteral("clickDurationMs")).toInt(600);
+    config.clickDurationMs = qBound(120, object.value(QStringLiteral("clickDurationMs")).toInt(600), 3000);
     config.showKeys = object.value(QStringLiteral("showKeys")).toBool(true);
-    config.keyFontSize = object.value(QStringLiteral("keyFontSize")).toInt(22);
-    config.keyOpacity = object.value(QStringLiteral("keyOpacity")).toInt(85);
+    config.keyFontSize = qBound(10, object.value(QStringLiteral("keyFontSize")).toInt(22), 72);
+    config.keyOpacity = qBound(0, object.value(QStringLiteral("keyOpacity")).toInt(85), 100);
     const QJsonArray keyPos = object.value(QStringLiteral("keyPosition")).toArray();
     if (keyPos.size() == 2)
         config.keyPosition = QPoint(keyPos.at(0).toInt(-1), keyPos.at(1).toInt(-1));
     config.showCamera = object.value(QStringLiteral("showCamera")).toBool(false);
     config.cameraDeviceId = object.value(QStringLiteral("cameraDeviceId")).toString();
     config.cameraMirror = object.value(QStringLiteral("cameraMirror")).toBool(true);
-    config.cameraOpacity = object.value(QStringLiteral("cameraOpacity")).toInt(100);
+    config.cameraOpacity = qBound(20, object.value(QStringLiteral("cameraOpacity")).toInt(100), 100);
     const QJsonArray cameraRect = object.value(QStringLiteral("cameraRect")).toArray();
     if (cameraRect.size() == 4)
         config.cameraRect = QRect(cameraRect.at(0).toInt(), cameraRect.at(1).toInt(),
                                   cameraRect.at(2).toInt(), cameraRect.at(3).toInt());
-    config.layout = static_cast<LayoutTemplate>(object.value(QStringLiteral("layout")).toInt(0));
+    const int layout = object.value(QStringLiteral("layout")).toInt(0);
+    config.layout = (layout >= 0 && layout <= static_cast<int>(LayoutTemplate::Triple))
+                        ? static_cast<LayoutTemplate>(layout)
+                        : LayoutTemplate::Single;
     config.pptImagePath = object.value(QStringLiteral("pptImagePath")).toString();
     config.pptWidth = object.value(QStringLiteral("pptWidth")).toInt(640);
     config.pptHeight = object.value(QStringLiteral("pptHeight")).toInt(360);
@@ -445,14 +477,14 @@ OverlayConfig ConfigStore::overlayFromJson(const QJsonObject &object)
     if (spotlightRect.size() == 4)
         config.spotlightRect = QRect(spotlightRect.at(0).toInt(), spotlightRect.at(1).toInt(),
                                      spotlightRect.at(2).toInt(), spotlightRect.at(3).toInt());
-    config.spotlightDim = object.value(QStringLiteral("spotlightDim")).toInt(140);
+    config.spotlightDim = qBound(40, object.value(QStringLiteral("spotlightDim")).toInt(140), 220);
     config.magnifierEnabled = object.value(QStringLiteral("magnifierEnabled")).toBool(false);
     const QJsonArray magnifierRect = object.value(QStringLiteral("magnifierRect")).toArray();
     if (magnifierRect.size() == 4)
         config.magnifierRect = QRect(magnifierRect.at(0).toInt(), magnifierRect.at(1).toInt(),
                                      magnifierRect.at(2).toInt(), magnifierRect.at(3).toInt());
-    config.magnifierZoom = object.value(QStringLiteral("magnifierZoom")).toDouble(2.0);
-    config.magnifierWidth = object.value(QStringLiteral("magnifierWidth")).toInt(420);
+    config.magnifierZoom = qBound(1.2, object.value(QStringLiteral("magnifierZoom")).toDouble(2.0), 4.0);
+    config.magnifierWidth = qBound(200, object.value(QStringLiteral("magnifierWidth")).toInt(420), 800);
     return config;
 }
 

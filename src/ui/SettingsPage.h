@@ -11,6 +11,7 @@ class QLabel;
 class QLineEdit;
 class QProgressBar;
 class QPushButton;
+class QShowEvent;
 class QSlider;
 class QSpinBox;
 
@@ -29,8 +30,10 @@ public:
     void loadFromConfig();
     void startFfmpegInstall();
 
-signals:
-    void settingsSaved();
+protected:
+    void showEvent(QShowEvent *event) override;
+
+signals:    void settingsSaved();
     void virtualCameraToggled(bool enabled);
     void toolbarScaleChanged(int percent);
     void toolbarStyleChanged(int style);
@@ -91,6 +94,10 @@ private:
     QKeySequenceEdit *m_hotkeyPause = nullptr;
     QKeySequenceEdit *m_hotkeyDraw = nullptr;
     QKeySequenceEdit *m_hotkeyHide = nullptr;
+    QKeySequenceEdit *m_hotkeyCamera = nullptr;
+    QKeySequenceEdit *m_hotkeySpotlight = nullptr;
+    QKeySequenceEdit *m_hotkeyMagnifier = nullptr;
+    QKeySequenceEdit *m_hotkeyRegion = nullptr;
 
     QSpinBox *m_livePort = nullptr;
     QCheckBox *m_virtualCamera = nullptr;

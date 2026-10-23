@@ -19,7 +19,9 @@
 #include <QMessageBox>
 #include <QProcess>
 #include <QPushButton>
+#include <QSet>
 #include <QShowEvent>
+#include <QSignalBlocker>
 #include <QTableWidget>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -203,6 +205,26 @@ QStringList FilesPage::selectedPaths() const
 
 void FilesPage::showContextMenu(const QPoint &position)
 {
+    // Make right-clicking an unselected row operate on that row, matching the
+    // behavior users expect from Explorer.
+    const QModelIndex clicked = m_table->indexAt(position);
+    if (clicked.isValid()) {
+        bool alreadySelected = false;
+        if (m_table->selectionModel()) {
+            const auto rows = m_table->selectionModel()->selectedRows();
+            for (const QModelIndex &row : rows) {
+                if (row.row() == clicked.row()) {
+                    alreadySelected = true;
+                    break;
+                }
+            }
+        }
+        if (!alreadySelected) {
+            m_table->clearSelection();
+            m_table->selectRow(clicked.row());
+        }
+    }
+
     const QStringList paths = selectedPaths();
     if (paths.isEmpty())
         return;
@@ -247,8 +269,10 @@ void FilesPage::previewSelected()
 void FilesPage::openFolderSelected()
 {
     QString path = selectedPath();
-    if (path.isEmpty())
-        path = m_library->outputDir();
+    if (path.isEmpty()) {
+        QDesktopServices::openUrl(QUrl::fromLocalFile(m_library->outputDir()));
+        return;
+    }
     QProcess::startDetached(QStringLiteral("explorer.exe"),
                             { QStringLiteral("/select,"), QDir::toNativeSeparators(path) });
 }
@@ -295,15 +319,38 @@ void FilesPage::batchRename()
     int renamed = 0;
     QStringList failures;
     const QString safePrefix = AppPaths::sanitizeFileName(prefix.trimmed());
+    const QString dir = QFileInfo(paths.first()).absolutePath();
+    const QSignalBlocker libraryBlocker(m_library);
+
+    // Reserve every current MP4 name in the directory. Targets that would
+    // collide with another recording get a numeric suffix instead of failing
+    // halfway through the batch.
+    QSet<QString> used;
+    const QFileInfoList existing = QDir(dir).entryInfoList({ QStringLiteral("*.mp4") }, QDir::Files);
+    for (const QFileInfo &file : existing)
+        used.insert(file.fileName().toLower());
+
     for (int i = 0; i < paths.size(); ++i) {
-        const QString name = QStringLiteral("%1_%2").arg(safePrefix)
-                                 .arg(i + 1, 3, 10, QLatin1Char('0'));
+        const QFileInfo source(paths.at(i));
+        const QString ownName = source.fileName().toLower();
+        QString baseName = QStringLiteral("%1_%2").arg(safePrefix)
+                               .arg(i + 1, 3, 10, QLatin1Char('0'));
+        QString targetName = baseName + QStringLiteral(".mp4");
+        int counter = 2;
+        while (used.contains(targetName.toLower()) && targetName.toLower() != ownName)
+            targetName = QStringLiteral("%1_%2.mp4").arg(baseName).arg(counter++);
+
+        if (targetName.toLower() == ownName) {
+            ++renamed;
+            continue;
+        }
+        used.insert(targetName.toLower());
         QString newPath;
         QString error;
-        if (m_library->renameRecording(paths.at(i), name, &newPath, &error))
+        if (m_library->renameRecording(paths.at(i), targetName, &newPath, &error))
             ++renamed;
         else
-            failures.append(QStringLiteral("%1：%2").arg(QFileInfo(paths.at(i)).fileName(), error));
+            failures.append(QStringLiteral("%1：%2").arg(source.fileName(), error));
     }
     refresh();
     if (!failures.isEmpty())
@@ -333,6 +380,7 @@ void FilesPage::batchDelete()
 
     int deleted = 0;
     QStringList failures;
+    const QSignalBlocker libraryBlocker(m_library);
     for (const QString &path : paths) {
         QString error;
         if (m_library->deleteRecording(path, &error))

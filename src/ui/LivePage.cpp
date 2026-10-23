@@ -40,6 +40,15 @@ LivePage::LivePage(RecordingController *controller, OverlayController *overlay, 
         m_lanStatus->setText(QStringLiteral("直播画面异常：%1").arg(message));
     });
     connect(m_controller, &RecordingController::stateChanged, this, &LivePage::handleRecordingState);
+    connect(m_controller, &RecordingController::streamStatus, this, [this](const QString &status) {
+        if (m_rtmpActive || m_rtmpPending)
+            m_rtmpStatus->setText(status);
+        if (status.contains(QStringLiteral("中断"))) {
+            m_rtmpActive = false;
+            m_rtmpButton->setText(QStringLiteral("开始直播"));
+            m_rtmpButton->setEnabled(true);
+        }
+    });
 
     const StreamConfig stream = ConfigStore::instance().streamDefaults();
     m_rtmpUrl->setText(stream.serverUrl);
@@ -95,7 +104,7 @@ void LivePage::buildUi()
     rtmpLayout->addWidget(m_rtmpButton, 0, Qt::AlignLeft);
     rtmpLayout->addWidget(m_rtmpStatus);
     rtmpLayout->addWidget(ui::mutedLabel(
-        QStringLiteral("支持 H.264/H.265 录制；推流时自动使用 H.264 以兼容 FLV/RTMP。"
+        QStringLiteral("支持 H.264/H.265 录制；开启 RTMP 推流时本次录制与推流统一使用 H.264，以兼容 FLV/RTMP。"
                        "直播期间仍可打开画板、鼠标高亮和摄像头画中画。"), rtmpCard));
     rtmpLayout->addStretch(1);
     body->addWidget(rtmpCard, 1);
@@ -145,7 +154,7 @@ void LivePage::buildUi()
     layout->addLayout(body, 1);
 
     connect(m_rtmpButton, &QPushButton::clicked, this, [this] {
-        if (m_rtmpActive || m_controller->isRecording())
+        if (m_rtmpActive)
             stopRtmp();
         else
             startRtmp();
@@ -184,13 +193,39 @@ void LivePage::startRtmp()
     ConfigStore::instance().setStreamDefaults(config);
 
     m_rtmpButton->setEnabled(false);
+    m_rtmpButton->setText(QStringLiteral("连接中…"));
+    m_rtmpPending = true;
     m_rtmpStatus->setText(QStringLiteral("正在连接 RTMP 服务器…"));
     emit startStreamRequested(config);
 }
 
 void LivePage::stopRtmp()
 {
+    if (m_rtmpActive) {
+        m_rtmpButton->setEnabled(false);
+        m_rtmpButton->setText(QStringLiteral("停止中…"));
+        m_rtmpStatus->setText(QStringLiteral("正在停止直播…"));
+    } else {
+        // A countdown / connection attempt is still pending.
+        m_rtmpPending = false;
+        resetRtmpStart();
+    }
     emit stopStreamRequested();
+}
+
+void LivePage::resetRtmpStart()
+{
+    if (m_rtmpActive)
+        return;
+    m_rtmpPending = false;
+    m_rtmpButton->setText(QStringLiteral("开始直播"));
+    m_rtmpButton->setEnabled(true);
+    m_rtmpStatus->setText(QStringLiteral("未开始"));
+}
+
+void LivePage::reloadSettings()
+{
+    m_portSpin->setValue(ConfigStore::instance().liveServerPort());
 }
 
 void LivePage::startLan()
@@ -297,19 +332,34 @@ void LivePage::connectRecordingFrames(bool connectFrames)
 
 void LivePage::handleRecordingState(RecordState state)
 {
-    if (state == RecordState::Recording && m_controller->streamActive()) {
-        m_rtmpActive = true;
-        m_rtmpButton->setText(QStringLiteral("停止直播"));
-        m_rtmpButton->setEnabled(true);
-        m_rtmpStatus->setText(QStringLiteral("直播中：已连接 RTMP 服务器"));
+    if (state == RecordState::Recording) {
+        if (m_rtmpPending || m_rtmpActive) {
+            if (m_controller->streamActive()) {
+                m_rtmpPending = false;
+                m_rtmpActive = true;
+                m_rtmpButton->setText(QStringLiteral("停止直播"));
+                m_rtmpButton->setEnabled(true);
+                m_rtmpStatus->setText(QStringLiteral("直播中：已连接 RTMP 服务器"));
+            } else {
+                m_rtmpPending = false;
+                m_rtmpActive = false;
+                m_rtmpButton->setText(QStringLiteral("开始直播"));
+                m_rtmpButton->setEnabled(true);
+                m_rtmpStatus->setText(QStringLiteral("RTMP 连接失败，本地录像继续"));
+            }
+        }
     } else if (state == RecordState::Idle) {
+        m_rtmpPending = false;
         if (m_rtmpActive) {
             m_rtmpActive = false;
             m_rtmpButton->setText(QStringLiteral("开始直播"));
             m_rtmpButton->setEnabled(true);
             m_rtmpStatus->setText(QStringLiteral("直播已结束"));
         } else if (!m_controller->isRecording()) {
+            m_rtmpButton->setText(QStringLiteral("开始直播"));
             m_rtmpButton->setEnabled(true);
+            if (m_rtmpStatus->text().contains(QStringLiteral("正在连接")))
+                m_rtmpStatus->setText(QStringLiteral("未开始"));
         }
     }
 

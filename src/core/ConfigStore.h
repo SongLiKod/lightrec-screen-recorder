@@ -63,6 +63,10 @@ public:
     QString hotkeyPause() const;
     QString hotkeyDraw() const;
     QString hotkeyHideOverlay() const;
+    QString hotkeyCamera() const;
+    QString hotkeySpotlight() const;
+    QString hotkeyMagnifier() const;
+    QString hotkeyRegion() const;
     void setHotkey(const QString &action, const QString &sequence);
     QString hotkey(const QString &action) const;
 

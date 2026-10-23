@@ -53,8 +53,13 @@ QRect logicalToPhysical(const QRect &rect)
                  qRound(rect.width() * ratio), qRound(rect.height() * ratio));
 }
 
-QRect physicalToLogical(const QRect &rect)
+QRect physicalToLogical(const QRect &rect, HWND hwnd = nullptr)
 {
+    if (hwnd) {
+        const double scale = qMax(1.0, GetDpiForWindow(hwnd) / 96.0);
+        return QRect(qRound(rect.x() / scale), qRound(rect.y() / scale),
+                     qRound(rect.width() / scale), qRound(rect.height() / scale));
+    }
     QScreen *screen = QGuiApplication::screenAt(
         QPoint(qRound(rect.center().x() / (QGuiApplication::primaryScreen()
                                               ? QGuiApplication::primaryScreen()->devicePixelRatio()
@@ -82,6 +87,15 @@ bool DxgiCapture::start(const CaptureConfig &config, QString *error)
     stop();
     m_config = config;
 
+    if (m_config.mode == CaptureMode::Window) {
+        const HWND hwnd = reinterpret_cast<HWND>(m_config.windowId);
+        if (!hwnd || !IsWindow(hwnd) || IsIconic(hwnd)) {
+            if (error)
+                *error = QStringLiteral("目标窗口已关闭或最小化，请重新选择窗口");
+            return false;
+        }
+    }
+
     if (!initDevice(error))
         return false;
 
@@ -105,6 +119,7 @@ bool DxgiCapture::start(const CaptureConfig &config, QString *error)
 void DxgiCapture::stop()
 {
     releaseDuplication();
+    m_lastFullFrame = QImage();
     m_staging.Reset();
     m_output1.Reset();
     m_output.Reset();
@@ -201,6 +216,7 @@ bool DxgiCapture::selectOutput(const QRect &targetRect, QString *error)
 bool DxgiCapture::createDuplication(QString *error)
 {
     releaseDuplication();
+    m_lastFullFrame = QImage();
 
     DXGI_OUTPUT_DESC desc = {};
     m_output->GetDesc(&desc);
@@ -288,7 +304,7 @@ QRect DxgiCapture::resolveRect() const
         if (hwnd && IsWindow(hwnd) && !IsIconic(hwnd)) {
             const QRect physical = windowFrameRect(hwnd);
             if (physical.width() >= 2 && physical.height() >= 2)
-                return physicalToLogical(physical);
+                return physicalToLogical(physical, hwnd);
         }
         return m_lastRect.isValid() ? m_lastRect : screenGeometry(m_config.monitorIndex);
     }
@@ -320,40 +336,47 @@ bool DxgiCapture::grab(QImage &frame, int timeoutMs, QString *error)
     ComPtr<IDXGIResource> resource;
     HRESULT hr = m_duplication->AcquireNextFrame(static_cast<UINT>(std::max(1, timeoutMs)), &info, &resource);
     if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
+        // Desktop Duplication does not produce a new frame for cursor-only
+        // movement. Re-crop the last raw desktop image and redraw the cursor so
+        // the pointer stays smooth while the screen is otherwise static.
         m_lastRect = target;
         m_lastPhysicalRect = targetPhysical;
-        return false;
-    }
-    if (hr == DXGI_ERROR_ACCESS_LOST) {
+        if (m_lastFullFrame.isNull())
+            return false;
+    } else if (hr == DXGI_ERROR_ACCESS_LOST) {
         // Desktop switched, display mode changed or secure desktop appeared.
         if (!createDuplication(error))
             return false;
         m_lastRect = target;
         m_lastPhysicalRect = targetPhysical;
         return false;
-    }
-    if (FAILED(hr)) {
+    } else if (FAILED(hr)) {
         if (error)
             *error = QStringLiteral("捕获屏幕帧失败 (0x%1)").arg(quint32(hr), 8, 16, QLatin1Char('0'));
         return false;
-    }
+    } else {
+        ComPtr<ID3D11Texture2D> texture;
+        hr = resource.As(&texture);
+        if (SUCCEEDED(hr)) {
+            m_context->CopyResource(m_staging.Get(), texture.Get());
+        }
+        m_duplication->ReleaseFrame();
 
-    ComPtr<ID3D11Texture2D> texture;
-    hr = resource.As(&texture);
-    if (SUCCEEDED(hr)) {
-        m_context->CopyResource(m_staging.Get(), texture.Get());
-    }
-    m_duplication->ReleaseFrame();
-
-    if (FAILED(hr)) {
-        if (error)
-            *error = QStringLiteral("获取屏幕纹理失败");
-        return false;
+        if (FAILED(hr)) {
+            if (error)
+                *error = QStringLiteral("获取屏幕纹理失败");
+            return false;
+        }
     }
 
     QImage full;
-    if (!copyToImage(full, error))
-        return false;
+    if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
+        full = m_lastFullFrame;
+    } else {
+        if (!copyToImage(full, error))
+            return false;
+        m_lastFullFrame = full;
+    }
 
     QRect crop = targetPhysical.intersected(m_outputRect);
     crop.translate(-m_outputRect.topLeft());
@@ -412,6 +435,15 @@ QImage DxgiCapture::cursorImage(QPoint *hotspot) const
     HDC screenDc = GetDC(nullptr);
     HDC memDc = CreateCompatibleDC(screenDc);
     HBITMAP bitmap = CreateDIBSection(screenDc, &bmi, DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (!screenDc || !memDc || !bitmap || !bits) {
+        if (bitmap)
+            DeleteObject(bitmap);
+        if (memDc)
+            DeleteDC(memDc);
+        if (screenDc)
+            ReleaseDC(nullptr, screenDc);
+        return {};
+    }
     HGDIOBJ old = SelectObject(memDc, bitmap);
     memset(bits, 0, static_cast<size_t>(size) * size * 4);
 

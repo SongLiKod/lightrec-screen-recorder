@@ -17,7 +17,7 @@ if (-not $QtPath) {
 }
 
 $generator = if ($MinGW) { "MinGW Makefiles" } else { "Visual Studio 17 2022" }
-$args = @(
+$cmakeArgs = @(
     "-S", $root,
     "-B", (Join-Path $root $BuildDir),
     "-G", $generator,
@@ -25,19 +25,19 @@ $args = @(
     "-DCMAKE_BUILD_TYPE=$Config"
 )
 if (-not $MinGW) {
-    $args += @("-A", "x64")
+    $cmakeArgs += @("-A", "x64")
 }
 if ($FfmpegRoot) {
-    $args += "-DFFMPEG_ROOT=$FfmpegRoot"
+    $cmakeArgs += "-DFFMPEG_ROOT=$FfmpegRoot"
 }
 if ($FfmpegBin) {
-    $args += "-DFFMPEG_DLL_DIR=$FfmpegBin"
+    $cmakeArgs += "-DFFMPEG_DLL_DIR=$FfmpegBin"
 }
 if ($NoFfmpeg) {
-    $args += "-DLIGHTREC_WITH_FFMPEG=OFF"
+    $cmakeArgs += "-DLIGHTREC_WITH_FFMPEG=OFF"
 }
 
-cmake @args
+cmake @cmakeArgs
 cmake --build (Join-Path $root $BuildDir) --config $Config -j 8
 
 Write-Host "构建完成：$(Join-Path $root $BuildDir)" -ForegroundColor Green

@@ -1,6 +1,7 @@
 #include "overlay/InputHooks.h"
 
 #include <QDateTime>
+#include <QCursor>
 #include <QDebug>
 
 #include <windows.h>
@@ -150,7 +151,11 @@ LRESULT CALLBACK InputHooks::mouseProc(int code, WPARAM wParam, LPARAM lParam)
 {
     if (code == HC_ACTION && g_instance) {
         const auto *info = reinterpret_cast<MSLLHOOKSTRUCT *>(lParam);
-        const QPoint position(info->pt.x, info->pt.y);
+        Q_UNUSED(info)
+        // MSLLHOOKSTRUCT is in physical pixels; QCursor::pos() is in Qt's
+        // logical coordinate space and matches the overlay windows on high-DPI
+        // desktops.
+        const QPoint position = QCursor::pos();
         if (wParam == WM_LBUTTONDOWN)
             emit g_instance->mouseClicked(Qt::LeftButton, position);
         else if (wParam == WM_RBUTTONDOWN)

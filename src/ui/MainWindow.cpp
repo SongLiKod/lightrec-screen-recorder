@@ -14,6 +14,7 @@
 #include "record/RecordingLibrary.h"
 #include "schedule/ScheduleManager.h"
 #include "ui/CountdownWindow.h"
+#include "ui/CaptureBorderWindow.h"
 #include "ui/FilesPage.h"
 #include "ui/FloatingRecordDot.h"
 #include "ui/FloatingToolbar.h"
@@ -28,6 +29,7 @@
 #include "virtualcam/VirtualCamera.h"
 
 #include <QApplication>
+#include <QAbstractSpinBox>
 #include <QButtonGroup>
 #include <QCloseEvent>
 #include <QDialog>
@@ -35,11 +37,14 @@
 #include <QFileInfo>
 #include <QFrame>
 #include <QHBoxLayout>
+#include <QKeyEvent>
 #include <QLabel>
+#include <QLineEdit>
 #include <QListWidget>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QScreen>
+#include <QShortcut>
 #include <QStackedWidget>
 #include <QThread>
 #include <QTimer>
@@ -120,10 +125,15 @@ MainWindow::MainWindow(QWidget *parent)
     m_toolbar->setStyle(ConfigStore::instance().toolbarStyle());
     m_toolbar->setOpacity(ConfigStore::instance().toolbarOpacity());
     m_recordDot = new FloatingRecordDot();
+    m_captureBorder = new CaptureBorderWindow();
+    m_captureBorderTimer = new QTimer(this);
+    m_captureBorderTimer->setInterval(50);
+    connect(m_captureBorderTimer, &QTimer::timeout, this, &MainWindow::updateCaptureBorder);
 
     buildUi();
     wireSignals();
     registerHotkeys();
+    qApp->installEventFilter(this);
 
     RecordOptions initial;
     initial.video = ConfigStore::instance().videoDefaults();
@@ -135,10 +145,10 @@ MainWindow::MainWindow(QWidget *parent)
     m_recordPage->setOutputDir(AppPaths::outputDir());
     m_overlay->applyConfig(initial.overlay);
 
-    connect(m_controller, &RecordingController::frameReady,
-            m_virtualCamera, &VirtualCamera::pushFrame);
     connect(m_recordDot, &FloatingRecordDot::toggleRequested, this, [this] {
-        if (m_controller->state() == RecordState::Idle)
+        if (m_countdown)
+            cancelCountdown();
+        else if (m_controller->state() == RecordState::Idle)
             startRecording();
         else
             stopRecording();
@@ -163,10 +173,19 @@ MainWindow::MainWindow(QWidget *parent)
 
 MainWindow::~MainWindow()
 {
+    setVirtualCameraTap(false);
+    if (m_captureBorderTimer)
+        m_captureBorderTimer->stop();
+    if (m_captureBorder)
+        m_captureBorder->hideBorder();
     m_livePage->stopAll();
     m_virtualCamera->stop();
     delete m_toolbar;
+    m_toolbar = nullptr;
+    delete m_captureBorder;
+    m_captureBorder = nullptr;
     delete m_recordDot;
+    m_recordDot = nullptr;
 }
 
 void MainWindow::buildUi()
@@ -312,7 +331,7 @@ void MainWindow::wireSignals()
     connect(m_toolbar, &FloatingToolbar::drawToggled, this, [this](bool enabled) {
         m_overlay->setDrawingEnabled(enabled);
         m_toolbar->setHint(enabled
-                               ? QStringLiteral("标注模式：顶部工具条选择画笔/直线/箭头/矩形/圆形/文字；点击“退出”或按 Esc 结束")
+                               ? QStringLiteral("标注模式：按 1–6（或 P/L/A/R/O/T）切换工具；点击“退出”或按 Esc 结束")
                                : QStringLiteral("标注已关闭 · 高亮/放大：拖拽选框调整 · 再次点击按钮或 Esc 退出"));
     });
     connect(m_toolbar, &FloatingToolbar::overlaysToggled, this, [this](bool visible) {
@@ -333,7 +352,7 @@ void MainWindow::wireSignals()
             m_toolbar->showMessage(QStringLiteral("局部高亮已开启，拖动选框调整高亮区域"));
         } else {
             m_toolbar->setHint(QStringLiteral(
-                "标注/高亮/放大：点击开启，再次点击或按 Esc 退出  ·  拖动工具栏可移动"));
+                "标注/高亮/放大：点击开启，再次点击或按 Esc 退出  ·  拖动左侧手柄可移动"));
         }
     });
     connect(m_toolbar, &FloatingToolbar::magnifierToggled, this, [this](bool enabled) {
@@ -346,7 +365,7 @@ void MainWindow::wireSignals()
             m_toolbar->showMessage(QStringLiteral("局部放大已开启，拖动选框选择放大区域"));
         } else {
             m_toolbar->setHint(QStringLiteral(
-                "标注/高亮/放大：点击开启，再次点击或按 Esc 退出  ·  拖动工具栏可移动"));
+                "标注/高亮/放大：点击开启，再次点击或按 Esc 退出  ·  拖动左侧手柄可移动"));
         }
     });
     connect(m_toolbar, &FloatingToolbar::adjustRegionRequested, this, &MainWindow::adjustRegion);
@@ -355,12 +374,18 @@ void MainWindow::wireSignals()
         raise();
         activateWindow();
     });
+    connect(m_toolbar, &FloatingToolbar::geometryChanged, this, [this](const QRect &geometry) {
+        m_overlay->setFloatingToolbarGeometry(geometry);
+    });
 
     connect(m_overlay, &OverlayController::drawingEnabledChanged, this, [this](bool enabled) {
         m_toolbar->setDrawEnabled(enabled);
         if (enabled) {
             m_toolbar->setHint(QStringLiteral(
-                "标注模式：顶部工具条选择画笔/直线/箭头/矩形/圆形/文字；点击“退出”或按 Esc 结束"));
+                "标注模式：按 1–6（或 P/L/A/R/O/T）切换工具；点击“退出”或按 Esc 结束"));
+        } else {
+            m_toolbar->setHint(QStringLiteral(
+                "标注/高亮/放大：点击开启，再次点击或按 Esc 退出  ·  拖动左侧手柄可移动"));
         }
         m_toolbar->raise();
         WindowUtils::setTopmost(m_toolbar->winId(), true);
@@ -372,9 +397,15 @@ void MainWindow::wireSignals()
     }, Qt::QueuedConnection);
     connect(m_overlay, &OverlayController::spotlightEnabledChanged, this, [this](bool enabled) {
         m_toolbar->setSpotlightEnabled(enabled);
+        m_toolbar->setHint(enabled
+                               ? QStringLiteral("局部高亮已开启：拖动选框调整高亮区域；再次点击“高亮”或按 Esc 退出")
+                               : QStringLiteral("标注/高亮/放大：点击开启，再次点击或按 Esc 退出  ·  拖动左侧手柄可移动"));
     });
     connect(m_overlay, &OverlayController::magnifierEnabledChanged, this, [this](bool enabled) {
         m_toolbar->setMagnifierEnabled(enabled);
+        m_toolbar->setHint(enabled
+                               ? QStringLiteral("局部放大已开启：拖动选框选择放大区域；再次点击“放大”或按 Esc 退出")
+                               : QStringLiteral("标注/高亮/放大：点击开启，再次点击或按 Esc 退出  ·  拖动左侧手柄可移动"));
     });
     connect(m_overlay, &OverlayController::cameraError, this, [this](const QString &message) {
         m_recordPage->setStatusText(QStringLiteral("摄像头：%1").arg(message));
@@ -390,8 +421,8 @@ void MainWindow::wireSignals()
     });
     connect(m_controller, &RecordingController::warning, this, [this](const QString &message) {
         m_recordPage->setStatusText(message);
-        if (message.contains(QStringLiteral("硬件编码")))
-            ui::warn(this, QStringLiteral("编码器提示"), message);
+        if (m_toolbar->isVisible())
+            m_toolbar->showMessage(message);
     });
     connect(m_controller, &RecordingController::errorOccurred, this, [this](const QString &message) {
         m_recordPage->setStatusText(message);
@@ -432,8 +463,11 @@ void MainWindow::wireSignals()
 
     connect(m_settingsPage, &SettingsPage::settingsSaved, this, [this] {
         m_recordPage->setOutputDir(AppPaths::outputDir());
+        m_recordPage->reloadDefaults();
         m_recordPage->updateFfmpegStatus();
         m_toolbar->setScale(ConfigStore::instance().toolbarScale());
+        m_toolbar->refreshShortcutHints();
+        m_livePage->reloadSettings();
         m_filesPage->refresh();
         if (m_controller->state() == RecordState::Idle)
             m_overlay->applyConfig(ConfigStore::instance().overlayDefaults());
@@ -455,6 +489,7 @@ void MainWindow::wireSignals()
     connect(m_settingsPage, &SettingsPage::showFloatingToolbarChanged, this, [this](bool visible) {
         if (!visible) {
             m_toolbar->hideToolbar();
+            m_overlay->setFloatingToolbarGeometry(QRect());
         } else if (m_controller->isRecording()) {
             m_toolbar->showToolbar();
         }
@@ -473,9 +508,14 @@ void MainWindow::wireSignals()
     connect(m_settingsPage, &SettingsPage::virtualCameraToggled, this, [this](bool enabled) {
         if (enabled && m_controller->isRecording()) {
             QString error;
-            if (!m_virtualCamera->start(&error))
+            if (m_virtualCamera->start(&error)) {
+                setVirtualCameraTap(true);
+            } else {
+                setVirtualCameraTap(false);
                 m_recordPage->setStatusText(error);
+            }
         } else if (!enabled) {
+            setVirtualCameraTap(false);
             m_virtualCamera->stop();
         }
     });
@@ -487,7 +527,7 @@ void MainWindow::wireSignals()
 
     connect(m_schedule, &ScheduleManager::taskStartRequested,
             this, [this](const QString &taskId, const QString &presetName, const QString &taskName) {
-        if (m_controller->state() != RecordState::Idle)
+        if (m_controller->state() != RecordState::Idle || m_countdown)
             return;
         if (!presetName.isEmpty() && m_presets->exists(presetName))
             applyPreset(m_presets->load(presetName));
@@ -495,15 +535,42 @@ void MainWindow::wireSignals()
         m_schedule->setActiveTask(taskId);
         m_recordPage->setStatusText(QStringLiteral("定时任务“%1”启动").arg(taskName));
         startRecording();
-        if (m_controller->state() == RecordState::Idle) {
+        if (!m_countdown && m_controller->state() == RecordState::Idle) {
             m_activeTaskId.clear();
             m_schedule->setActiveTask(QString());
         }
     });
     connect(m_schedule, &ScheduleManager::taskStopRequested,
             this, [this](const QString &taskId, const QString &) {
-        if (m_activeTaskId == taskId && m_controller->isRecording())
+        if (m_activeTaskId != taskId)
+            return;
+        if (m_countdown) {
+            cancelCountdown();
+            return;
+        }
+        if (m_controller->isRecording())
             m_controller->stop();
+    });
+
+    // Escape works even when the overlay does not own keyboard focus (for
+    // example directly after toggling a tool from the floating toolbar).
+    auto *escape = new QShortcut(QKeySequence(Qt::Key_Escape), this);
+    escape->setContext(Qt::ApplicationShortcut);
+    connect(escape, &QShortcut::activated, this, [this] {
+        if (QApplication::activeModalWidget())
+            return;
+        if (m_countdown) {
+            cancelCountdown();
+            return;
+        }
+        if (!(m_controller->isRecording() || m_overlay->isSessionActive()))
+            return;
+        if (m_overlay->isDrawingEnabled())
+            m_overlay->setDrawingEnabled(false);
+        else if (m_overlay->isSpotlightEnabled())
+            m_overlay->setSpotlightEnabled(false);
+        else if (m_overlay->isMagnifierEnabled())
+            m_overlay->setMagnifierEnabled(false);
     });
 }
 
@@ -515,6 +582,10 @@ void MainWindow::registerHotkeys()
     hotkeys.registerHotkey(QStringLiteral("pause"), ConfigStore::instance().hotkeyPause());
     hotkeys.registerHotkey(QStringLiteral("draw"), ConfigStore::instance().hotkeyDraw());
     hotkeys.registerHotkey(QStringLiteral("hideOverlay"), ConfigStore::instance().hotkeyHideOverlay());
+    hotkeys.registerHotkey(QStringLiteral("camera"), ConfigStore::instance().hotkeyCamera());
+    hotkeys.registerHotkey(QStringLiteral("spotlight"), ConfigStore::instance().hotkeySpotlight());
+    hotkeys.registerHotkey(QStringLiteral("magnifier"), ConfigStore::instance().hotkeyMagnifier());
+    hotkeys.registerHotkey(QStringLiteral("region"), ConfigStore::instance().hotkeyRegion());
 
     connect(&hotkeys, &HotkeyManager::hotkeyPressed, this, [this](const QString &action) {
         if (action == QStringLiteral("startStop")) {
@@ -530,11 +601,33 @@ void MainWindow::registerHotkeys()
             else if (m_controller->state() == RecordState::Paused)
                 m_controller->resume();
         } else if (action == QStringLiteral("draw")) {
-            if (m_controller->isRecording())
+            if (m_controller->isRecording() || m_overlay->isSessionActive())
                 m_overlay->toggleDrawing();
         } else if (action == QStringLiteral("hideOverlay")) {
-            if (m_controller->isRecording())
+            if (m_controller->isRecording() || m_overlay->isSessionActive())
                 m_overlay->toggleOverlaysVisible();
+        } else if (action == QStringLiteral("camera")) {
+            if (m_overlay->isSessionActive()) {
+                const bool enabled = !m_overlay->config().showCamera;
+                m_overlay->setCameraEnabled(enabled);
+                m_toolbar->setCameraEnabled(enabled);
+                const QString status = enabled ? QStringLiteral("摄像头画中画已开启")
+                                               : QStringLiteral("摄像头画中画已关闭");
+                m_recordPage->setStatusText(status);
+                if (m_toolbar->isVisible())
+                    m_toolbar->showMessage(status);
+            }
+        } else if (action == QStringLiteral("spotlight")) {
+            if (m_overlay->isSessionActive())
+                m_overlay->setSpotlightEnabled(!m_overlay->isSpotlightEnabled());
+        } else if (action == QStringLiteral("magnifier")) {
+            if (m_overlay->isSessionActive())
+                m_overlay->setMagnifierEnabled(!m_overlay->isMagnifierEnabled());
+        } else if (action == QStringLiteral("region")) {
+            if (m_controller->state() == RecordState::Recording
+                || m_controller->state() == RecordState::Paused) {
+                adjustRegion();
+            }
         }
     });
 }
@@ -584,10 +677,14 @@ void MainWindow::startRecording(const StreamConfig *streamOverride)
     }
     if (m_controller->state() != RecordState::Idle) {
         m_recordPage->setStatusText(QStringLiteral("当前已有录制任务在进行"));
+        m_livePage->resetRtmpStart();
         return;
     }
-    if (m_countdown)
+    if (m_countdown) {
+        if (streamOverride)
+            m_livePage->resetRtmpStart();
         return;
+    }
 
     RecordOptions options = currentOptions();
     if (streamOverride) {
@@ -604,22 +701,42 @@ void MainWindow::startRecording(const StreamConfig *streamOverride)
 
     if (options.stream.enabled && options.stream.fullUrl().isEmpty()) {
         ui::warn(this, QStringLiteral("推流设置"), QStringLiteral("请先填写 RTMP 推流地址和密钥。"));
+        m_livePage->resetRtmpStart();
         return;
     }
     if (options.video.mode == CaptureMode::Region
         && (options.video.region.width() < 2 || options.video.region.height() < 2)) {
         ui::warn(this, QStringLiteral("录制选区"), QStringLiteral("请先框选录制区域。"));
+        m_livePage->resetRtmpStart();
         return;
     }
     if (options.video.mode == CaptureMode::Window && options.video.windowId == 0) {
         ui::warn(this, QStringLiteral("窗口录制"), QStringLiteral("请先选择要录制的窗口。"));
+        m_livePage->resetRtmpStart();
         return;
+    }
+    if (options.video.mode == CaptureMode::Window) {
+        bool windowAvailable = false;
+        for (const WindowInfo &window : ScreenCapture::windows()) {
+            if (window.id == options.video.windowId) {
+                windowAvailable = true;
+                break;
+            }
+        }
+        if (!windowAvailable) {
+            ui::warn(this, QStringLiteral("窗口录制"),
+                     QStringLiteral("目标窗口已关闭或最小化，请重新选择要录制的窗口。"));
+            m_livePage->resetRtmpStart();
+            return;
+        }
     }
 
     const int countdown = m_diagnosticMode ? 0 : ConfigStore::instance().countdownSeconds();
     if (countdown > 0) {
         m_countdown = new CountdownWindow(countdown);
         connect(m_countdown, &CountdownWindow::finished, this, [this, options] {
+            if (!m_countdown)
+                return; // canceled while the final timer tick was in flight
             CountdownWindow *window = m_countdown;
             m_countdown = nullptr;
             if (window)
@@ -627,18 +744,38 @@ void MainWindow::startRecording(const StreamConfig *streamOverride)
             beginRecording(options);
         });
         connect(m_countdown, &CountdownWindow::canceled, this, [this] {
+            if (!m_countdown)
+                return;
             CountdownWindow *window = m_countdown;
             m_countdown = nullptr;
             if (window)
                 window->deleteLater();
+            m_recordPage->setState(RecordState::Idle);
+            m_toolbar->setState(RecordState::Idle);
             m_recordPage->setStatusText(QStringLiteral("已取消录制倒计时"));
+            m_livePage->resetRtmpStart();
         });
+        m_recordPage->setState(RecordState::Starting);
+        m_toolbar->setState(RecordState::Starting);
         m_recordPage->setStatusText(QStringLiteral("录制将在 %1 秒后开始").arg(countdown));
         m_countdown->start();
         return;
     }
 
     beginRecording(options);
+}
+
+void MainWindow::setVirtualCameraTap(bool enabled)
+{
+    if (enabled) {
+        if (!m_virtualCameraTap) {
+            m_virtualCameraTap = connect(m_controller, &RecordingController::frameReady,
+                                         m_virtualCamera, &VirtualCamera::pushFrame);
+        }
+    } else if (m_virtualCameraTap) {
+        disconnect(m_virtualCameraTap);
+        m_virtualCameraTap = QMetaObject::Connection();
+    }
 }
 
 void MainWindow::cancelCountdown()
@@ -649,7 +786,14 @@ void MainWindow::cancelCountdown()
     m_countdown = nullptr;
     window->close();
     window->deleteLater();
+    m_recordPage->setState(RecordState::Idle);
+    m_toolbar->setState(RecordState::Idle);
     m_recordPage->setStatusText(QStringLiteral("已取消录制倒计时"));
+    if (!m_activeTaskId.isEmpty()) {
+        m_activeTaskId.clear();
+        m_schedule->setActiveTask(QString());
+    }
+    m_livePage->resetRtmpStart();
 }
 
 void MainWindow::beginRecording(const RecordOptions &options)
@@ -661,6 +805,10 @@ void MainWindow::beginRecording(const RecordOptions &options)
         m_recordPage->setStatusText(error);
         ui::warn(this, QStringLiteral("无法开始录制"), error);
         m_livePage->setRecordingState(RecordState::Idle);
+        if (!m_activeTaskId.isEmpty()) {
+            m_activeTaskId.clear();
+            m_schedule->setActiveTask(QString());
+        }
         return;
     }
 
@@ -676,11 +824,26 @@ void MainWindow::beginRecording(const RecordOptions &options)
 
     if (ConfigStore::instance().virtualCameraEnabled()) {
         QString virtualError;
-        if (!m_virtualCamera->start(&virtualError))
+        if (m_virtualCamera->start(&virtualError)) {
+            setVirtualCameraTap(true);
+        } else {
+            setVirtualCameraTap(false);
             m_recordPage->setStatusText(virtualError);
+        }
+    } else {
+        setVirtualCameraTap(false);
     }
 
-    if (options.minimizeOnStart && !options.stream.enabled)
+    m_borderMode = options.video.mode;
+    if (m_borderMode == CaptureMode::Region || m_borderMode == CaptureMode::Window) {
+        updateCaptureBorder();
+        m_captureBorderTimer->start();
+    } else {
+        m_captureBorder->hideBorder();
+        m_captureBorderTimer->stop();
+    }
+
+    if (options.minimizeOnStart)
         showMinimized();
 
     // Show the toolbar after minimizing so the OS cannot hide it together with
@@ -688,9 +851,11 @@ void MainWindow::beginRecording(const RecordOptions &options)
     if (ConfigStore::instance().showFloatingToolbar()) {
         m_toolbar->showToolbar();
         m_toolbar->setHint(QStringLiteral(
-            "标注：切换画板工具进行绘制  ·  高亮/放大：拖拽选框调整  ·  "
-            "再次点击工具按钮或按 Esc 退出  ·  拖动工具栏可移动"));
-        m_toolbar->showMessage(QStringLiteral("录制已开始 · 可拖动工具栏调整位置"));
+            "标注：1–6 切换工具  ·  高亮/放大：拖拽选框调整  ·  "
+            "再次点击工具按钮或按 Esc 退出  ·  拖动左侧手柄可移动"));
+        m_toolbar->showMessage(QStringLiteral("录制已开始 · 可拖动左侧手柄调整位置"));
+    } else {
+        m_overlay->setFloatingToolbarGeometry(QRect());
     }
     if (ConfigStore::instance().floatingDotEnabled())
         m_recordDot->showAtSavedPosition();
@@ -720,6 +885,26 @@ void MainWindow::startDiagnosticRecording(int seconds)
     QTimer::singleShot(qMax(1, seconds) * 1000, this, [this] { stopRecording(); });
 }
 
+void MainWindow::updateCaptureBorder()
+{
+    if (!m_controller || m_borderMode == CaptureMode::FullScreen
+        || m_controller->state() == RecordState::Idle) {
+        if (m_captureBorder)
+            m_captureBorder->hideBorder();
+        if (m_captureBorderTimer)
+            m_captureBorderTimer->stop();
+        return;
+    }
+
+    const QRect rect = m_controller->captureRect();
+    if (rect.width() < 2 || rect.height() < 2)
+        return;
+    if (m_captureBorder->isVisible())
+        m_captureBorder->setCaptureRect(rect);
+    else
+        m_captureBorder->showBorder(rect);
+}
+
 void MainWindow::handleStateChanged(RecordState state)
 {
     m_recordPage->setState(state);
@@ -737,6 +922,14 @@ void MainWindow::handleStateChanged(RecordState state)
     }
     if (state == RecordState::Idle) {
         m_toolbar->hideToolbar();
+        m_overlay->setFloatingToolbarGeometry(QRect());
+        if (m_captureBorderTimer)
+            m_captureBorderTimer->stop();
+        if (m_captureBorder)
+            m_captureBorder->hideBorder();
+        m_toolbar->setElapsed(0);
+        m_recordPage->setElapsed(0);
+        setVirtualCameraTap(false);
         if (m_virtualCamera->isRunning())
             m_virtualCamera->stop();
     }
@@ -751,6 +944,7 @@ void MainWindow::handleRecordingFinished(const QString &path, bool success, cons
         return;
     }
     m_toolbar->hideToolbar();
+    setVirtualCameraTap(false);
     m_virtualCamera->stop();
     m_activeTaskId.clear();
     m_schedule->setActiveTask(QString());
@@ -813,8 +1007,11 @@ void MainWindow::adjustRegion()
         QString error;
         if (!m_controller->updateRegion(region, &error))
             ui::warn(this, QStringLiteral("调整选区"), error);
-        else
+        else {
             m_recordPage->setRegion(region);
+            if (m_borderMode == CaptureMode::Region)
+                updateCaptureBorder();
+        }
     });
     selector->show();
     selector->raise();
@@ -844,24 +1041,8 @@ void MainWindow::checkRecovery()
     if (entries.isEmpty())
         return;
 
-    QStringList lines;
-    for (const JournalEntry &entry : entries) {
-        lines << QStringLiteral("· %1（%2）")
-                     .arg(QFileInfo(entry.outputPath).fileName().isEmpty()
-                              ? QStringLiteral("未命名录制")
-                              : QFileInfo(entry.outputPath).fileName(),
-                          entry.startedAt.toString(QStringLiteral("yyyy-MM-dd HH:mm")));
-    }
-
-    const auto answer = QMessageBox::question(
-        this, QStringLiteral("发现未完成的录制"),
-        QStringLiteral("上次软件异常退出，检测到 %1 个可恢复的录制缓存：\n\n%2\n\n是否立即恢复？")
-            .arg(entries.size())
-            .arg(lines.join(QLatin1Char('\n'))),
-        QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
-    if (answer != QMessageBox::Yes)
-        return;
-
+    // autoRecoverEnabled means exactly that: recover silently instead of
+    // blocking an unattended/scheduled startup with a modal question.
     QStringList recovered;
     QStringList failed;
     for (const JournalEntry &entry : entries) {
@@ -875,20 +1056,115 @@ void MainWindow::checkRecovery()
     m_filesPage->refresh();
     if (!recovered.isEmpty()) {
         m_filesPage->selectFile(recovered.first());
-        ui::info(this, QStringLiteral("恢复完成"),
-                 QStringLiteral("已恢复 %1 个录像：\n%2")
-                     .arg(recovered.size())
-                     .arg(recovered.join(QLatin1Char('\n'))));
+        m_recordPage->setStatusText(QStringLiteral("已自动恢复 %1 个未完成录像").arg(recovered.size()));
     }
-    if (!failed.isEmpty())
+    if (!failed.isEmpty()) {
+        m_recordPage->setStatusText(QStringLiteral("部分录像恢复失败：%1").arg(failed.first()));
         ui::warn(this, QStringLiteral("部分录像恢复失败"), failed.join(QLatin1Char('\n')));
+    }
+}
+
+bool MainWindow::eventFilter(QObject *watched, QEvent *event)
+{
+    if (event->type() == QEvent::Show) {
+        if (auto *widget = qobject_cast<QWidget *>(watched);
+            widget && widget->windowType() == Qt::ToolTip) {
+            WindowUtils::excludeFromCapture(widget->winId());
+        }
+    }
+    if (event->type() == QEvent::KeyPress && m_overlay
+        && m_overlay->isDrawingEnabled()) {
+        auto *key = static_cast<QKeyEvent *>(event);
+        if (!QApplication::activeModalWidget()) {
+            QWidget *focus = QApplication::focusWidget();
+            if (!qobject_cast<QAbstractSpinBox *>(focus)
+                && !qobject_cast<QLineEdit *>(focus)) {
+                const bool ctrl = key->modifiers().testFlag(Qt::ControlModifier);
+                const bool alt = key->modifiers().testFlag(Qt::AltModifier);
+                const bool meta = key->modifiers().testFlag(Qt::MetaModifier);
+
+                if (key->key() == Qt::Key_Backspace || (ctrl && !alt && !meta
+                                                        && key->key() == Qt::Key_Z)) {
+                    m_overlay->undoAnnotation();
+                    return true;
+                }
+                if (!ctrl && !alt && !meta) {
+                    switch (key->key()) {
+                    case Qt::Key_Delete:
+                        m_overlay->clearAnnotation();
+                        return true;
+                    case Qt::Key_H:
+                        m_overlay->toggleOverlaysVisible();
+                        return true;
+                    case Qt::Key_BracketLeft:
+                    case Qt::Key_Minus:
+                    case Qt::Key_Underscore:
+                        m_overlay->adjustAnnotationPenWidth(-1);
+                        return true;
+                    case Qt::Key_BracketRight:
+                    case Qt::Key_Equal:
+                    case Qt::Key_Plus:
+                        m_overlay->adjustAnnotationPenWidth(1);
+                        return true;
+                    case Qt::Key_Z:
+                        m_overlay->selectAnnotationColor(0);
+                        return true;
+                    case Qt::Key_X:
+                        m_overlay->selectAnnotationColor(1);
+                        return true;
+                    case Qt::Key_C:
+                        m_overlay->selectAnnotationColor(2);
+                        return true;
+                    case Qt::Key_V:
+                        m_overlay->selectAnnotationColor(3);
+                        return true;
+                    case Qt::Key_B:
+                        m_overlay->selectAnnotationColor(4);
+                        return true;
+                    case Qt::Key_N:
+                        m_overlay->selectAnnotationColor(5);
+                        return true;
+                    default:
+                        break;
+                    }
+
+                    AnnotationTool tool = AnnotationTool::None;
+                    switch (key->key()) {
+                    case Qt::Key_1:
+                    case Qt::Key_P: tool = AnnotationTool::Pen; break;
+                    case Qt::Key_2:
+                    case Qt::Key_L: tool = AnnotationTool::Line; break;
+                    case Qt::Key_3:
+                    case Qt::Key_A: tool = AnnotationTool::Arrow; break;
+                    case Qt::Key_4:
+                    case Qt::Key_R: tool = AnnotationTool::Rect; break;
+                    case Qt::Key_5:
+                    case Qt::Key_O: tool = AnnotationTool::Ellipse; break;
+                    case Qt::Key_6:
+                    case Qt::Key_T: tool = AnnotationTool::Text; break;
+                    default: break;
+                    }
+                    if (tool != AnnotationTool::None) {
+                        m_overlay->setDrawingTool(tool);
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    return QMainWindow::eventFilter(watched, event);
 }
 
 void MainWindow::closeEvent(QCloseEvent *event)
 {
     if (m_countdown) {
         cancelCountdown();
+        if (m_toolbar)
+            m_toolbar->hide();
+        if (m_recordDot)
+            m_recordDot->hide();
         event->accept();
+        QTimer::singleShot(0, qApp, &QCoreApplication::quit);
         return;
     }
     if (m_controller->state() == RecordState::Stopping) {
@@ -915,7 +1191,10 @@ void MainWindow::closeEvent(QCloseEvent *event)
     m_virtualCamera->stop();
     if (m_recordDot)
         m_recordDot->hide();
+    if (m_toolbar)
+        m_toolbar->hide();
     event->accept();
+    QTimer::singleShot(0, qApp, &QCoreApplication::quit);
 }
 
 } // namespace lightrec

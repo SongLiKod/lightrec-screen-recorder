@@ -181,7 +181,10 @@ void LiveServer::handleRequest(Client &client, const QByteArray &request)
         sendSimple(socket, 404, "text/plain; charset=utf-8", "Bad Request");
         return;
     }
-    const QByteArray path = parts.at(1);
+    QByteArray path = parts.at(1);
+    const int query = path.indexOf('?');
+    if (query >= 0)
+        path = path.left(query);
 
     if (path == "/" || path == "/index.html") {
         QFile file(QStringLiteral(":/html/live.html"));
@@ -279,6 +282,12 @@ void LiveServer::pushFrame(const QImage &frame)
 {
     if (!isRunning() || frame.isNull())
         return;
+    // No viewers: don't spend CPU on JPEG encoding.  A newly connected viewer
+    // receives the next frame (within ~70 ms).
+    if (viewerCount() == 0) {
+        m_lastJpeg.clear();
+        return;
+    }
     if (m_throttle.elapsed() < 70)
         return;
     m_throttle.restart();
@@ -293,9 +302,6 @@ void LiveServer::pushFrame(const QImage &frame)
     if (!image.save(&buffer, "JPEG", 72))
         return;
     m_lastJpeg = jpeg;
-
-    if (viewerCount() == 0)
-        return;
 
     QByteArray packet;
     packet += "--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ";

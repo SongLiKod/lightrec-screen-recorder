@@ -30,6 +30,8 @@ public:
     void setOptionsProvider(std::function<RecordOptions()> provider);
     void setRecordingState(RecordState state);
     void prepareForRecording();
+    void resetRtmpStart();
+    void reloadSettings();
     void stopAll();
 
 signals:
@@ -70,6 +72,7 @@ private:
 
     bool m_lanActive = false;
     bool m_rtmpActive = false;
+    bool m_rtmpPending = false;
     bool m_previewRunning = false;
     QMetaObject::Connection m_frameConnection;
 };

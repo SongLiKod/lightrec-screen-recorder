@@ -9,11 +9,12 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMouseEvent>
+#include <QMoveEvent>
 #include <QPainter>
 #include <QScreen>
 #include <QSignalBlocker>
+#include <QTimer>
 #include <QToolButton>
-#include <QToolTip>
 
 namespace lightrec {
 
@@ -55,6 +56,20 @@ FloatingToolbar::FloatingToolbar(QWidget *parent)
 
     auto *layout = m_buttonLayout;
 
+    auto addShortcutCell = [this, buttonRow](QToolButton *button) {
+        auto *cell = new QWidget(buttonRow);
+        auto *cellLayout = new QVBoxLayout(cell);
+        cellLayout->setContentsMargins(0, 0, 0, 0);
+        cellLayout->setSpacing(0);
+        cellLayout->addWidget(button, 0, Qt::AlignHCenter);
+        auto *shortcut = new QLabel(cell);
+        shortcut->setObjectName(QStringLiteral("toolbarShortcut"));
+        shortcut->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
+        cellLayout->addWidget(shortcut, 0, Qt::AlignHCenter);
+        m_buttonLayout->addWidget(cell);
+        m_shortcutLabels.insert(button, shortcut);
+    };
+
     m_dragHandle = new QLabel(QStringLiteral("⣿"), this);
     m_dragHandle->setToolTip(QStringLiteral("拖动工具栏"));
     m_dragHandle->setCursor(Qt::SizeAllCursor);
@@ -76,15 +91,15 @@ FloatingToolbar::FloatingToolbar(QWidget *parent)
     m_pauseButton = makeButton(QStringLiteral("暂停"), QStringLiteral("暂停 / 继续"), this);
     m_stopButton = makeButton(QStringLiteral("停止"), QStringLiteral("停止录制并保存"), this);
     m_stopButton->setObjectName(QStringLiteral("stopButton"));
-    layout->addWidget(m_startButton);
-    layout->addWidget(m_pauseButton);
-    layout->addWidget(m_stopButton);
+    addShortcutCell(m_startButton);
+    addShortcutCell(m_pauseButton);
+    addShortcutCell(m_stopButton);
 
     auto *sep1 = new QLabel(QStringLiteral("│"), this);
     sep1->setStyleSheet(QStringLiteral("color: rgba(255,255,255,40);"));
     layout->addWidget(sep1);
 
-    m_drawButton = makeButton(QStringLiteral("标注"), QStringLiteral("开启 / 关闭实时标注画板"), this);
+    m_drawButton = makeButton(QStringLiteral("标注"), QStringLiteral("开启 / 关闭实时标注画板（1–6 切换工具）"), this);
     m_drawButton->setCheckable(true);
     m_overlayButton = makeButton(QStringLiteral("叠加"), QStringLiteral("显示 / 隐藏全部叠加元素"), this);
     m_overlayButton->setCheckable(true);
@@ -96,19 +111,18 @@ FloatingToolbar::FloatingToolbar(QWidget *parent)
     m_magnifierButton = makeButton(QStringLiteral("放大"), QStringLiteral("局部放大：拖拽选择要放大的区域"), this);
     m_magnifierButton->setCheckable(true);
     m_regionButton = makeButton(QStringLiteral("选区"), QStringLiteral("调整录制选区位置和大小"), this);
-    layout->addWidget(m_drawButton);
-    layout->addWidget(m_overlayButton);
-    layout->addWidget(m_cameraButton);
-    layout->addWidget(m_spotlightButton);
-    layout->addWidget(m_magnifierButton);
-    layout->addWidget(m_regionButton);
-
+    addShortcutCell(m_drawButton);
+    addShortcutCell(m_overlayButton);
+    addShortcutCell(m_cameraButton);
+    addShortcutCell(m_spotlightButton);
+    addShortcutCell(m_magnifierButton);
+    addShortcutCell(m_regionButton);
     auto *sep2 = new QLabel(QStringLiteral("│"), this);
     sep2->setStyleSheet(QStringLiteral("color: rgba(255,255,255,40);"));
     layout->addWidget(sep2);
 
-    auto *mainButton = makeButton(QStringLiteral("主界面"), QStringLiteral("打开 LightRec 主界面"), this);
-    layout->addWidget(mainButton);
+    m_mainButton = makeButton(QStringLiteral("主界面"), QStringLiteral("打开 LightRec 主界面"), this);
+    layout->addWidget(m_mainButton);
 
     connect(m_startButton, &QToolButton::clicked, this, &FloatingToolbar::startRequested);
     connect(m_pauseButton, &QToolButton::clicked, this, &FloatingToolbar::pauseRequested);
@@ -120,7 +134,7 @@ FloatingToolbar::FloatingToolbar(QWidget *parent)
     connect(m_magnifierButton, &QToolButton::toggled, this, &FloatingToolbar::magnifierToggled);
 
     connect(m_regionButton, &QToolButton::clicked, this, &FloatingToolbar::adjustRegionRequested);
-    connect(mainButton, &QToolButton::clicked, this, &FloatingToolbar::showMainRequested);
+    connect(m_mainButton, &QToolButton::clicked, this, &FloatingToolbar::showMainRequested);
 
     for (QToolButton *button : findChildren<QToolButton *>())
         button->installEventFilter(this);
@@ -128,20 +142,28 @@ FloatingToolbar::FloatingToolbar(QWidget *parent)
 
     m_hintLabel = new QLabel(this);
     m_hintLabel->setWordWrap(true);
-    m_hintLabel->setText(QStringLiteral(
-        "标注/高亮/放大：点击开启，再次点击或按 Esc 退出  ·  拖动工具栏可移动"));
+    m_hintText = QStringLiteral(
+        "标注/高亮/放大：点击开启，再次点击或按 Esc 退出  ·  拖动左侧手柄可移动");
+    m_hintLabel->setText(m_hintText);
     m_outerLayout->addWidget(m_hintLabel);
+
+    m_messageTimer = new QTimer(this);
+    m_messageTimer->setSingleShot(true);
+    m_messageTimer->setInterval(3500);
+    connect(m_messageTimer, &QTimer::timeout, this, [this] {
+        if (m_hintLabel)
+            m_hintLabel->setText(m_hintText);
+    });
 
     setState(RecordState::Idle);
     setScale(150);
+    refreshShortcutHints();
 }
 
 void FloatingToolbar::setScale(int percent)
 {
     m_scale = qBound(100, percent, 250);
     const int buttonHeight = qRound(34.0 * m_scale / 100.0);
-    const int fontSize = qMax(12, qRound(13.0 * m_scale / 100.0));
-    const int padding = qRound(7.0 * m_scale / 100.0);
 
     const QList<QToolButton *> buttons = {
         m_startButton, m_pauseButton, m_stopButton, m_drawButton,
@@ -225,6 +247,16 @@ void FloatingToolbar::applyAppearance()
                 .arg(qMax(11, qRound(12.0 * m_scale / 100.0)))
                 .arg(qRound(6.0 * m_scale / 100.0)));
     }
+    const QString shortcutColor = m_darkAppearance ? QStringLiteral("#8f9daf")
+                                                   : QStringLiteral("#7a8798");
+    for (QLabel *label : m_shortcutLabels.values()) {
+        if (!label)
+            continue;
+        label->setStyleSheet(
+            QStringLiteral("color:%1; font-size:%2px; font-weight:600; padding:0;")
+                .arg(shortcutColor)
+                .arg(qMax(9, qRound(7.0 * m_scale / 100.0))));
+    }
     update();
 }
 
@@ -250,16 +282,24 @@ void FloatingToolbar::paintEvent(QPaintEvent *event)
 
 void FloatingToolbar::setHint(const QString &hint)
 {
-    if (m_hintLabel && !hint.isEmpty())
+    if (hint.isEmpty())
+        return;
+    m_hintText = hint;
+    if (m_messageTimer)
+        m_messageTimer->stop();
+    if (m_hintLabel)
         m_hintLabel->setText(hint);
 }
 
 void FloatingToolbar::showMessage(const QString &message)
 {
-    if (message.isEmpty())
+    if (message.isEmpty() || !m_hintLabel)
         return;
-    QToolTip::showText(mapToGlobal(QPoint(width() / 2, height() + 6)), message, this,
-                       rect(), 3500);
+    // Keep transient messages inside the excluded toolbar instead of using a
+    // separate QToolTip window that would be visible in the recording.
+    m_hintLabel->setText(message);
+    if (m_messageTimer)
+        m_messageTimer->start();
 }
 
 void FloatingToolbar::setState(RecordState state)
@@ -320,7 +360,14 @@ void FloatingToolbar::setMagnifierEnabled(bool enabled)
 
 void FloatingToolbar::setRegionMode(bool regionMode)
 {
-    m_regionButton->setVisible(regionMode);
+    if (QWidget *cell = m_regionButton->parentWidget()) {
+        if (cell != this)
+            cell->setVisible(regionMode);
+        else
+            m_regionButton->setVisible(regionMode);
+    } else {
+        m_regionButton->setVisible(regionMode);
+    }
 }
 
 void FloatingToolbar::showToolbar()
@@ -340,7 +387,7 @@ void FloatingToolbar::showToolbar()
         if (parts.size() == 2)
             position = QPoint(parts.at(0).toInt(), parts.at(1).toInt());
     }
-    if (position.isNull()) {
+    if (saved.isEmpty()) {
         QScreen *screen = QGuiApplication::primaryScreen();
         if (screen) {
             const QRect geometry = screen->availableGeometry();
@@ -363,11 +410,71 @@ void FloatingToolbar::showToolbar()
     raise();
     WindowUtils::excludeFromCapture(winId());
     WindowUtils::setTopmost(winId(), true);
+    emit geometryChanged(geometry());
+}
+
+void FloatingToolbar::refreshShortcutHints()
+{
+    const auto withShortcut = [](const QString &text, const QString &sequence) {
+        return sequence.isEmpty() ? text : QStringLiteral("%1（%2）").arg(text, sequence);
+    };
+    const auto setLabel = [this](QToolButton *button, const QString &sequence) {
+        QLabel *label = m_shortcutLabels.value(button);
+        if (!label)
+            return;
+        label->setText(sequence);
+        label->setVisible(!sequence.isEmpty());
+    };
+    const ConfigStore &store = ConfigStore::instance();
+    setLabel(m_startButton, store.hotkeyStartStop());
+    setLabel(m_stopButton, store.hotkeyStartStop());
+    setLabel(m_pauseButton, store.hotkeyPause());
+    setLabel(m_drawButton, store.hotkeyDraw());
+    setLabel(m_overlayButton, store.hotkeyHideOverlay());
+    setLabel(m_cameraButton, store.hotkeyCamera());
+    setLabel(m_spotlightButton, store.hotkeySpotlight());
+    setLabel(m_magnifierButton, store.hotkeyMagnifier());
+    setLabel(m_regionButton, store.hotkeyRegion());
+    if (m_startButton)
+        m_startButton->setToolTip(withShortcut(QStringLiteral("开始录制"), store.hotkeyStartStop()));
+    if (m_stopButton)
+        m_stopButton->setToolTip(withShortcut(QStringLiteral("停止录制并保存"), store.hotkeyStartStop()));
+    if (m_pauseButton)
+        m_pauseButton->setToolTip(withShortcut(QStringLiteral("暂停 / 继续"), store.hotkeyPause()));
+    if (m_drawButton) {
+        m_drawButton->setToolTip(withShortcut(
+            QStringLiteral("开启 / 关闭实时标注画板（1–6 切换工具）"), store.hotkeyDraw()));
+    }
+    if (m_overlayButton)
+        m_overlayButton->setToolTip(withShortcut(QStringLiteral("显示 / 隐藏全部叠加元素"),
+                                                 store.hotkeyHideOverlay()));
+    if (m_cameraButton)
+        m_cameraButton->setToolTip(withShortcut(QStringLiteral("开启 / 关闭摄像头画中画"),
+                                                store.hotkeyCamera()));
+    if (m_spotlightButton)
+        m_spotlightButton->setToolTip(withShortcut(QStringLiteral("局部高亮：拖拽选择要突出的区域"),
+                                                   store.hotkeySpotlight()));
+    if (m_magnifierButton)
+        m_magnifierButton->setToolTip(withShortcut(QStringLiteral("局部放大：拖拽选择要放大的区域"),
+                                                   store.hotkeyMagnifier()));
+    if (m_regionButton)
+        m_regionButton->setToolTip(withShortcut(QStringLiteral("调整录制选区位置和大小"),
+                                                store.hotkeyRegion()));
+    if (isVisible()) {
+        adjustSize();
+        emit geometryChanged(geometry());
+    }
 }
 
 void FloatingToolbar::hideToolbar()
 {
     hide();
+}
+
+void FloatingToolbar::moveEvent(QMoveEvent *event)
+{
+    QWidget::moveEvent(event);
+    emit geometryChanged(geometry());
 }
 
 bool FloatingToolbar::eventFilter(QObject *watched, QEvent *event)

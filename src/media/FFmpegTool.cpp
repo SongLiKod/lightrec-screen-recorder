@@ -337,7 +337,7 @@ QStringList FFmpegTool::watermarkArguments(const QString &input, const QString &
     if (!config.imagePath.isEmpty() && QFileInfo::exists(config.imagePath)) {
         arguments << QStringLiteral("-i") << config.imagePath;
         arguments << QStringLiteral("-filter_complex")
-                  << QStringLiteral("[1:v]format=rgba,colorchannelmixer=aa=%1,scale=iw*%2:-1[wm];[0:v][wm]overlay=%3:%4[v]")
+                  << QStringLiteral("[1:v]format=rgba,colorchannelmixer=aa=%1,scale=trunc(iw*%2/2)*2:-2[wm];[0:v][wm]overlay=%3:%4[v]")
                          .arg(alpha)
                          .arg(qBound(0.02, config.scale, 1.0), 0, 'f', 3)
                          .arg(x, y)

@@ -2,10 +2,12 @@
 
 #include "core/Types.h"
 
+#include <QHash>
 #include <QPoint>
 #include <QWidget>
 
 class QLabel;
+class QTimer;
 class QToolButton;
 class QVBoxLayout;
 class QHBoxLayout;
@@ -34,6 +36,7 @@ public:
     void setRegionMode(bool regionMode);
     void showToolbar();
     void hideToolbar();
+    void refreshShortcutHints();
 
 signals:
     void startRequested();
@@ -46,16 +49,20 @@ signals:
     void magnifierToggled(bool enabled);
     void adjustRegionRequested();
     void showMainRequested();
+    void geometryChanged(const QRect &geometry);
 
 protected:
     void paintEvent(QPaintEvent *event) override;
     bool eventFilter(QObject *watched, QEvent *event) override;
+    void moveEvent(QMoveEvent *event) override;
 
 private:
     QLabel *m_dragHandle = nullptr;
     QLabel *m_dot = nullptr;
     QLabel *m_elapsedLabel = nullptr;
     QLabel *m_hintLabel = nullptr;
+    QTimer *m_messageTimer = nullptr;
+    QString m_hintText;
     QVBoxLayout *m_outerLayout = nullptr;
     QHBoxLayout *m_buttonLayout = nullptr;
     QToolButton *m_startButton = nullptr;
@@ -67,6 +74,8 @@ private:
     QToolButton *m_spotlightButton = nullptr;
     QToolButton *m_magnifierButton = nullptr;
     QToolButton *m_regionButton = nullptr;
+    QToolButton *m_mainButton = nullptr;
+    QHash<QToolButton *, QLabel *> m_shortcutLabels;
     QPoint m_dragOffset;
     bool m_dragging = false;
     int m_scale = 150;

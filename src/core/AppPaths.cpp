@@ -6,6 +6,7 @@
 #include <QFileInfo>
 #include <QSettings>
 #include <QStandardPaths>
+#include <QStringList>
 
 namespace lightrec {
 
@@ -104,9 +105,29 @@ QString AppPaths::sanitizeFileName(const QString &name)
     static const QString invalid = QStringLiteral("\\/:*?\"<>|");
     for (const QChar &ch : invalid)
         result.replace(ch, QLatin1Char('_'));
+    for (QChar &ch : result) {
+        if (ch.unicode() < 0x20)
+            ch = QLatin1Char('_');
+    }
     result = result.trimmed();
+    while (result.endsWith(QLatin1Char('.')) || result.endsWith(QLatin1Char(' ')))
+        result.chop(1);
     if (result.isEmpty())
         result = QStringLiteral("LightRec");
+
+    // Windows reserves these device names even when an extension is appended.
+    static const QStringList reserved = {
+        QStringLiteral("CON"), QStringLiteral("PRN"), QStringLiteral("AUX"), QStringLiteral("NUL"),
+        QStringLiteral("COM1"), QStringLiteral("COM2"), QStringLiteral("COM3"), QStringLiteral("COM4"),
+        QStringLiteral("COM5"), QStringLiteral("COM6"), QStringLiteral("COM7"), QStringLiteral("COM8"),
+        QStringLiteral("COM9"), QStringLiteral("LPT1"), QStringLiteral("LPT2"), QStringLiteral("LPT3"),
+        QStringLiteral("LPT4"), QStringLiteral("LPT5"), QStringLiteral("LPT6"), QStringLiteral("LPT7"),
+        QStringLiteral("LPT8"), QStringLiteral("LPT9")
+    };
+    if (reserved.contains(result.toUpper()))
+        result.prepend(QLatin1Char('_'));
+    if (result.size() > 120)
+        result.truncate(120);
     return result;
 }
 

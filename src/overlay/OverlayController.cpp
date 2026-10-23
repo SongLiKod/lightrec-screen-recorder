@@ -60,7 +60,23 @@ OverlayController::OverlayController(QObject *parent)
     });
 
     connect(m_overlay, &AnnotationOverlay::drawingEnabledChanged,
-            this, &OverlayController::drawingEnabledChanged);
+            this, [this](bool enabled) {
+        if (!enabled)
+            m_toolbar->hide();
+        emit drawingEnabledChanged(enabled);
+    });
+    connect(m_overlay, &AnnotationOverlay::toolChanged, this, [this](AnnotationTool tool) {
+        m_toolbar->setTool(tool);
+    });
+    connect(m_overlay, &AnnotationOverlay::interactionStarted, this, [this] {
+        // Clicking the full-screen overlay can activate/raise it above the
+        // annotation toolbar.  Re-raise the toolbar so tools remain clickable
+        // after every stroke without leaving annotation mode.
+        if (m_toolbar->isVisible()) {
+            m_toolbar->raise();
+            WindowUtils::setTopmost(m_toolbar->winId(), true);
+        }
+    });
     connect(m_overlay, &AnnotationOverlay::spotlightRectChanged, this, [this](const QRect &rect) {
         m_config.spotlightRect = rect;
         refreshCompositor();
@@ -123,6 +139,9 @@ void OverlayController::startSession(const QRect &captureRect, const QSize &sour
     m_model->clear();
     m_ripples.clear();
     m_keyEntries.clear();
+    m_keyWindow->setEntries({});
+    m_overlay->setKeyEntries({});
+    m_compositor.setKeyEntries({});
 
     m_overlay->refreshGeometry();
     m_overlay->setPenColor(m_config.penColor);
@@ -136,8 +155,8 @@ void OverlayController::startSession(const QRect &captureRect, const QSize &sour
     m_overlay->setDrawingEnabled(false);
     m_config.spotlightEnabled = false;
     m_config.magnifierEnabled = false;
-    m_config.spotlightRect = defaultSpotlightRect();
-    m_config.magnifierRect = defaultMagnifierRect();
+    m_config.spotlightRect = QRect();
+    m_config.magnifierRect = QRect();
     m_overlay->setSpotlightEnabled(false);
     m_overlay->setMagnifierEnabled(false);
     m_overlay->setSpotlightRect(m_config.spotlightRect);
@@ -156,8 +175,15 @@ void OverlayController::startSession(const QRect &captureRect, const QSize &sour
     loadPptImage();
     m_cameraWindow->setMirror(m_config.cameraMirror);
     m_cameraWindow->setOpacityPercent(m_config.cameraOpacity);
-    m_cameraWindow->setCaptureRect(m_config.cameraRect.isValid() ? m_config.cameraRect
-                                                                 : defaultCameraRect());
+    if (!m_config.cameraRect.isValid() || m_config.cameraRect.isEmpty())
+        m_config.cameraRect = defaultCameraRect();
+    const QRect cameraArea = m_captureRect.isValid() && m_captureRect.width() > 1
+                                 ? m_captureRect
+                                 : WindowUtils::virtualDesktopGeometry();
+    m_config.cameraRect = m_config.cameraRect.intersected(cameraArea);
+    if (m_config.cameraRect.width() < 160 || m_config.cameraRect.height() < 90)
+        m_config.cameraRect = defaultCameraRect();
+    m_cameraWindow->setCaptureRect(m_config.cameraRect);
 
     if (m_config.showCamera && m_config.layout == LayoutTemplate::Single) {
         m_cameraWindow->show();
@@ -233,6 +259,8 @@ void OverlayController::applyConfigToWindows()
         m_keyWindow->setGlobalPosition(m_config.keyPosition);
     m_cameraWindow->setMirror(m_config.cameraMirror);
     m_cameraWindow->setOpacityPercent(m_config.cameraOpacity);
+    if (m_config.cameraRect.isValid())
+        m_cameraWindow->setCaptureRect(m_config.cameraRect);
 
     if (m_active) {
         m_keyWindow->setVisible(m_config.showKeys && m_config.overlaysVisible);
@@ -275,7 +303,7 @@ void OverlayController::setDrawingEnabled(bool enabled)
         m_overlay->raise();
         WindowUtils::setTopmost(m_overlay->winId(), true);
         m_toolbar->syncFromConfig(m_config);
-        m_toolbar->showCentered();
+        m_toolbar->showCentered(m_captureRect, m_floatingToolbarRect);
         m_toolbar->raise();
         WindowUtils::setTopmost(m_toolbar->winId(), true);
     } else {
@@ -291,6 +319,31 @@ bool OverlayController::isDrawingEnabled() const
 void OverlayController::toggleDrawing()
 {
     setDrawingEnabled(!isDrawingEnabled());
+}
+
+void OverlayController::setDrawingTool(AnnotationTool tool)
+{
+    m_overlay->setTool(tool);
+}
+
+void OverlayController::selectAnnotationColor(int index)
+{
+    m_toolbar->setPenColorIndex(index);
+}
+
+void OverlayController::adjustAnnotationPenWidth(int delta)
+{
+    m_toolbar->adjustPenWidth(delta);
+}
+
+void OverlayController::undoAnnotation()
+{
+    m_model->undo();
+}
+
+void OverlayController::clearAnnotation()
+{
+    m_model->clear();
 }
 
 void OverlayController::setOverlaysVisible(bool visible)
@@ -351,8 +404,9 @@ void OverlayController::setSpotlightEnabled(bool enabled)
             setDrawingEnabled(false);
         if (m_config.magnifierEnabled)
             setMagnifierEnabled(false);
-        if (!m_config.spotlightRect.isValid() || m_config.spotlightRect.isEmpty())
-            m_config.spotlightRect = defaultSpotlightRect();
+        // Start with no selection: the dimming/magnified frame appears only
+        // after the user drags out an area with the mouse.
+        m_config.spotlightRect = QRect();
         m_config.spotlightEnabled = true;
         m_overlay->setSpotlightRect(m_config.spotlightRect);
         m_overlay->setSpotlightDim(m_config.spotlightDim);
@@ -377,8 +431,8 @@ void OverlayController::setMagnifierEnabled(bool enabled)
             setDrawingEnabled(false);
         if (m_config.spotlightEnabled)
             setSpotlightEnabled(false);
-        if (!m_config.magnifierRect.isValid() || m_config.magnifierRect.isEmpty())
-            m_config.magnifierRect = defaultMagnifierRect();
+        // No default magnifier frame; wait for a mouse-drawn area.
+        m_config.magnifierRect = QRect();
         m_config.magnifierEnabled = true;
         m_overlay->setMagnifierRect(m_config.magnifierRect);
         m_overlay->setMagnifierOptions(m_config.magnifierWidth, m_config.magnifierZoom);
@@ -425,6 +479,13 @@ void OverlayController::updateCameraRect(const QRect &rect)
     m_cameraWindow->setCaptureRect(rect);
     refreshCompositor();
     emit configChanged(m_config);
+}
+
+void OverlayController::setFloatingToolbarGeometry(const QRect &geometry)
+{
+    m_floatingToolbarRect = geometry;
+    if (m_toolbar->isVisible())
+        m_toolbar->followAnchor(m_captureRect, m_floatingToolbarRect);
 }
 
 void OverlayController::startCameraPreview()
@@ -499,6 +560,9 @@ void OverlayController::installHooks()
 void OverlayController::uninstallHooks()
 {
     disconnect(&InputHooks::instance(), nullptr, this, nullptr);
+    // Low-level keyboard/mouse hooks should only exist while an overlay session
+    // is active; otherwise they keep receiving every input event for no reason.
+    InputHooks::instance().uninstall();
 }
 
 void OverlayController::tick()
@@ -523,10 +587,6 @@ void OverlayController::tick()
                        m_keyEntries.end());
 
     m_compositor.setMouseState(m_cursor, true, m_ripples);
-    m_compositor.setKeyEntries(m_keyEntries);
-    m_compositor.setStrokes(m_model->strokes());
-    m_overlay->setKeyEntries(m_keyEntries);
-    m_keyWindow->setEntries(m_keyEntries);
 }
 
 void OverlayController::onKeyPressed(const QString &combination)
@@ -575,35 +635,20 @@ QSize OverlayController::computeOutputSize(const QRect &captureRect, const QSize
 
 QPoint OverlayController::defaultKeyPosition() const
 {
-    QScreen *screen = QGuiApplication::primaryScreen();
-    if (!screen)
-        return QPoint(24, 24);
-    const QRect geometry = screen->availableGeometry();
-    return QPoint(geometry.left() + 24, geometry.bottom() - 160);
+    const QRect area = m_captureRect.isValid() && m_captureRect.width() > 1
+                           ? m_captureRect
+                           : WindowUtils::virtualDesktopGeometry();
+    return QPoint(area.left() + 24, area.bottom() - 160);
 }
 
 QRect OverlayController::defaultCameraRect() const
 {
-    QScreen *screen = QGuiApplication::primaryScreen();
-    if (!screen)
-        return QRect(40, 40, 360, 202);
-    const QRect geometry = screen->availableGeometry();
-    return QRect(geometry.right() - 380, geometry.bottom() - 242, 360, 202);
-}
-
-QRect OverlayController::defaultSpotlightRect() const
-{
-    const QRect desktop = WindowUtils::virtualDesktopGeometry();
-    const int width = qMax(240, desktop.width() / 3);
-    const int height = qMax(160, desktop.height() / 3);
-    return QRect(desktop.center().x() - width / 2, desktop.center().y() - height / 2,
-                 width, height);
-}
-
-QRect OverlayController::defaultMagnifierRect() const
-{
-    const QRect desktop = WindowUtils::virtualDesktopGeometry();
-    return QRect(desktop.center().x() - 160, desktop.center().y() - 100, 320, 200);
+    const QRect area = m_captureRect.isValid() && m_captureRect.width() > 1
+                           ? m_captureRect
+                           : WindowUtils::virtualDesktopGeometry();
+    const int width = qBound(160, area.width() / 3, 360);
+    const int height = qMax(90, width * 9 / 16);
+    return QRect(area.right() - width - 24, area.bottom() - height - 24, width, height);
 }
 
 } // namespace lightrec

@@ -45,6 +45,7 @@ public:
     QString deviceName() const { return m_deviceName; }
     AudioFrameFormat format() const { return m_format; }
     bool isLoopback() const { return m_loopback; }
+    qint64 startEpochMs() const;
 
 private:
     struct Impl;

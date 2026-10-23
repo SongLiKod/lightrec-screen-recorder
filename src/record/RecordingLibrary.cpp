@@ -4,6 +4,7 @@
 #include "media/MediaProbe.h"
 
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 
 namespace lightrec {

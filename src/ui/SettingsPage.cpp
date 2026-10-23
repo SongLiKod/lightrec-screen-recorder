@@ -23,6 +23,7 @@
 #include <QProgressBar>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QShowEvent>
 #include <QSignalBlocker>
 #include <QSlider>
 #include <QSpinBox>
@@ -47,6 +48,15 @@ SettingsPage::SettingsPage(QWidget *parent)
     : QWidget(parent)
 {
     buildUi();
+    loadFromConfig();
+}
+
+void SettingsPage::showEvent(QShowEvent *event)
+{
+    QWidget::showEvent(event);
+    // Another page (or the live page) can also change persisted settings such
+    // as the output directory or live port.  Refresh the form before editing
+    // so Save cannot overwrite those values with stale widget state.
     loadFromConfig();
 }
 
@@ -186,12 +196,22 @@ void SettingsPage::buildUi()
     m_hotkeyPause = new QKeySequenceEdit(hotkeys);
     m_hotkeyDraw = new QKeySequenceEdit(hotkeys);
     m_hotkeyHide = new QKeySequenceEdit(hotkeys);
-    for (QKeySequenceEdit *edit : { m_hotkeyStartStop, m_hotkeyPause, m_hotkeyDraw, m_hotkeyHide })
+    m_hotkeyCamera = new QKeySequenceEdit(hotkeys);
+    m_hotkeySpotlight = new QKeySequenceEdit(hotkeys);
+    m_hotkeyMagnifier = new QKeySequenceEdit(hotkeys);
+    m_hotkeyRegion = new QKeySequenceEdit(hotkeys);
+    for (QKeySequenceEdit *edit : { m_hotkeyStartStop, m_hotkeyPause, m_hotkeyDraw, m_hotkeyHide,
+                                    m_hotkeyCamera, m_hotkeySpotlight, m_hotkeyMagnifier,
+                                    m_hotkeyRegion })
         edit->setMaximumSequenceLength(1);
     hotkeyForm->addRow(QStringLiteral("开始 / 停止录制"), m_hotkeyStartStop);
     hotkeyForm->addRow(QStringLiteral("暂停 / 继续"), m_hotkeyPause);
     hotkeyForm->addRow(QStringLiteral("开关实时画板"), m_hotkeyDraw);
     hotkeyForm->addRow(QStringLiteral("隐藏 / 显示 Overlay"), m_hotkeyHide);
+    hotkeyForm->addRow(QStringLiteral("开关摄像头画中画"), m_hotkeyCamera);
+    hotkeyForm->addRow(QStringLiteral("开关局部高亮"), m_hotkeySpotlight);
+    hotkeyForm->addRow(QStringLiteral("开关局部放大"), m_hotkeyMagnifier);
+    hotkeyForm->addRow(QStringLiteral("调整录制选区"), m_hotkeyRegion);
     cardLayout->addLayout(hotkeyForm);
     cardLayout->addWidget(ui::mutedLabel(
         QStringLiteral("快捷键全局生效；若被其他程序占用会提示失败。"), hotkeys));
@@ -517,6 +537,10 @@ void SettingsPage::loadFromConfig()
     m_hotkeyPause->setKeySequence(QKeySequence(store.hotkeyPause()));
     m_hotkeyDraw->setKeySequence(QKeySequence(store.hotkeyDraw()));
     m_hotkeyHide->setKeySequence(QKeySequence(store.hotkeyHideOverlay()));
+    m_hotkeyCamera->setKeySequence(QKeySequence(store.hotkeyCamera()));
+    m_hotkeySpotlight->setKeySequence(QKeySequence(store.hotkeySpotlight()));
+    m_hotkeyMagnifier->setKeySequence(QKeySequence(store.hotkeyMagnifier()));
+    m_hotkeyRegion->setKeySequence(QKeySequence(store.hotkeyRegion()));
 
     m_livePort->setValue(store.liveServerPort());
     m_virtualCamera->setChecked(store.virtualCameraEnabled());
@@ -619,17 +643,32 @@ void SettingsPage::save()
         { QStringLiteral("startStop"), m_hotkeyStartStop },
         { QStringLiteral("pause"), m_hotkeyPause },
         { QStringLiteral("draw"), m_hotkeyDraw },
-        { QStringLiteral("hideOverlay"), m_hotkeyHide }
+        { QStringLiteral("hideOverlay"), m_hotkeyHide },
+        { QStringLiteral("camera"), m_hotkeyCamera },
+        { QStringLiteral("spotlight"), m_hotkeySpotlight },
+        { QStringLiteral("magnifier"), m_hotkeyMagnifier },
+        { QStringLiteral("region"), m_hotkeyRegion }
     };
     QStringList failures;
     for (const HotkeyEntry &entry : hotkeys) {
         const QString sequence = entry.edit->keySequence().toString(QKeySequence::PortableText);
-        if (sequence.isEmpty())
+        const QString previous = store.hotkey(entry.action);
+        if (sequence.isEmpty()) {
+            // Clearing a shortcut disables it instead of silently keeping the
+            // previously registered global hotkey alive.
+            HotkeyManager::instance().unregisterHotkey(entry.action);
+            store.setHotkey(entry.action, QString());
             continue;
-        if (HotkeyManager::instance().registerHotkey(entry.action, sequence))
+        }
+        if (HotkeyManager::instance().registerHotkey(entry.action, sequence)) {
             store.setHotkey(entry.action, sequence);
-        else
+        } else {
             failures << QStringLiteral("%1：%2").arg(sequence, HotkeyManager::instance().lastError());
+            // registerHotkey() unregisters the old binding first; restore it so
+            // a failed edit does not leave the user without any hotkey.
+            if (!previous.isEmpty())
+                HotkeyManager::instance().registerHotkey(entry.action, previous);
+        }
     }
     if (!failures.isEmpty())
         ui::warn(this, QStringLiteral("部分快捷键注册失败"), failures.join(QLatin1Char('\n')));

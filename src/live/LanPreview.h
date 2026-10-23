@@ -2,9 +2,11 @@
 
 #include "capture/ScreenCapture.h"
 #include "core/Types.h"
+#include "overlay/OverlayController.h"
 
 #include <QImage>
 #include <QObject>
+#include <QPointer>
 #include <QSize>
 #include <QString>
 
@@ -12,8 +14,6 @@
 #include <thread>
 
 namespace lightrec {
-
-class OverlayController;
 
 /**
  * Lightweight capture loop used when the LAN live server runs without a
@@ -38,7 +38,7 @@ signals:
 private:
     void loop();
 
-    OverlayController *m_overlay = nullptr;
+    QPointer<OverlayController> m_overlay;
     ScreenCapture m_capture;
     VideoConfig m_video;
     QSize m_outputSize;

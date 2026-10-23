@@ -4,15 +4,18 @@
 #include "capture/ScreenCapture.h"
 #include "core/Types.h"
 #include "media/MediaPipeline.h"
+#include "overlay/OverlayController.h"
 #include "record/RecordingJournal.h"
 
 #include <QElapsedTimer>
 #include <QObject>
+#include <QPointer>
 #include <QStringList>
 #include <QTimer>
 
 #include <atomic>
 #include <memory>
+#include <mutex>
 #include <thread>
 
 namespace lightrec {
@@ -36,7 +39,7 @@ public:
     bool isRecording() const;
     qint64 elapsedMs() const;
     QString currentOutputPath() const { return m_outputPath; }
-    QRect captureRect() const { return m_capture.captureRect(); }
+    QRect captureRect() const;
     QString usedEncoder() const { return m_usedEncoder; }
     QStringList warnings() const { return m_warnings; }
     bool streamActive() const { return m_streamActive; }
@@ -59,8 +62,9 @@ private:
     void updateElapsed();
     void cleanupAfterStop();
 
-    OverlayController *m_overlay = nullptr;
+    QPointer<OverlayController> m_overlay;
     ScreenCapture m_capture;
+    mutable std::mutex m_captureMutex;
     WasapiCapture m_systemAudio;
     WasapiCapture m_micAudio;
     std::unique_ptr<MediaPipeline> m_pipeline;
@@ -78,6 +82,10 @@ private:
     std::atomic<bool> m_stopRequested{ false };
     std::atomic<bool> m_paused{ false };
     std::atomic<qint64> m_pausedMs{ 0 };
+    std::atomic<bool> m_audioReady{ false };
+    std::atomic<qint64> m_recordStartEpochMs{ 0 };
+    std::atomic<qint64> m_systemEpochMs{ 0 };
+    std::atomic<qint64> m_micEpochMs{ 0 };
 
     QElapsedTimer m_clock;
     qint64 m_pauseStarted = 0;

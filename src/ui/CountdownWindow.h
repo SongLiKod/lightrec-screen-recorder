@@ -2,6 +2,7 @@
 
 #include <QWidget>
 
+class QCloseEvent;
 class QTimer;
 
 namespace lightrec {
@@ -21,6 +22,7 @@ signals:
 protected:
     void paintEvent(QPaintEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
+    void closeEvent(QCloseEvent *event) override;
 
 private:
     int m_remaining = 0;

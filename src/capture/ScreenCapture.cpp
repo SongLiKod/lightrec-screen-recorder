@@ -27,6 +27,19 @@ BOOL CALLBACK enumWindowsProc(HWND hwnd, LPARAM lParam)
     if (!context)
         return TRUE;
 
+    if (hwnd == GetShellWindow() || hwnd == GetDesktopWindow())
+        return TRUE;
+
+    wchar_t className[256] = {};
+    GetClassNameW(hwnd, className, 255);
+    const QString windowClass = QString::fromWCharArray(className);
+    if (windowClass == QStringLiteral("Progman")
+        || windowClass == QStringLiteral("WorkerW")
+        || windowClass == QStringLiteral("Shell_TrayWnd")
+        || windowClass == QStringLiteral("Shell_SecondaryTrayWnd")) {
+        return TRUE;
+    }
+
     if (!IsWindowVisible(hwnd) || IsIconic(hwnd))
         return TRUE;
 

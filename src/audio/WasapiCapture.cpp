@@ -119,6 +119,9 @@ struct WasapiCapture::Impl
     std::thread thread;
     std::atomic<bool> running{ false };
     std::atomic<bool> paused{ false };
+    std::atomic<qint64> pauseStartedMs{ 0 };
+    std::atomic<qint64> pausedTotalMs{ 0 };
+    std::atomic<qint64> startEpochMs{ 0 };
     AudioFrameCallback callback;
     AudioProcessor processor;
     int gainDb = 0;
@@ -166,6 +169,9 @@ bool WasapiCapture::start(bool loopback, const QString &deviceId, QString *error
     m_loopback = loopback;
     m_impl->running = true;
     m_impl->paused = false;
+    m_impl->pauseStartedMs = 0;
+    m_impl->pausedTotalMs = 0;
+    m_impl->startEpochMs = 0;
     m_impl->fallbackFrames = 0;
     m_impl->loopback = loopback;
     m_impl->callback = m_callback;
@@ -215,13 +221,35 @@ void WasapiCapture::stop()
 
 void WasapiCapture::setPaused(bool paused)
 {
-    if (m_impl)
-        m_impl->paused = paused;
+    if (!m_impl)
+        return;
+
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    const bool wasPaused = m_impl->paused.load();
+    if (paused) {
+        if (!wasPaused) {
+            m_impl->pauseStartedMs = now;
+            m_impl->paused = true;
+        }
+    } else {
+        if (wasPaused) {
+            const qint64 started = m_impl->pauseStartedMs.load();
+            if (started > 0)
+                m_impl->pausedTotalMs.fetch_add(std::max<qint64>(0, now - started));
+            m_impl->pauseStartedMs = 0;
+        }
+        m_impl->paused = false;
+    }
 }
 
 bool WasapiCapture::isRunning() const
 {
     return m_impl && m_impl->running;
+}
+
+qint64 WasapiCapture::startEpochMs() const
+{
+    return m_impl ? m_impl->startEpochMs.load() : 0;
 }
 
 void WasapiCapture::Impl::run(WasapiCapture *owner, QString requestedDeviceId,
@@ -328,7 +356,8 @@ void WasapiCapture::Impl::run(WasapiCapture *owner, QString requestedDeviceId,
     // Wall-clock timestamps keep both audio tracks aligned with the video
     // clock and avoid vendor-specific QPC unit quirks (some capture endpoints
     // report absolute 100 ns values instead of QPC ticks).
-    const qint64 startEpochMs = QDateTime::currentMSecsSinceEpoch();
+    startEpochMs = QDateTime::currentMSecsSinceEpoch();
+    const qint64 localStartEpochMs = startEpochMs.load();
 
     finishInit(true);
 
@@ -379,7 +408,8 @@ void WasapiCapture::Impl::run(WasapiCapture *owner, QString requestedDeviceId,
                     processor.process(converted.data(), static_cast<int>(frames), format.channels);
                 }
 
-                qint64 ptsMs = QDateTime::currentMSecsSinceEpoch() - startEpochMs;
+                qint64 ptsMs = QDateTime::currentMSecsSinceEpoch() - localStartEpochMs
+                               - pausedTotalMs.load();
                 if (ptsMs < 0)
                     ptsMs = static_cast<qint64>(fallbackFrames * 1000 / format.sampleRate);
                 fallbackFrames += frames;

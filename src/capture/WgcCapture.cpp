@@ -251,9 +251,15 @@ QRect WgcCapture::resolveRect() const
     case CaptureMode::Window: {
         const HWND hwnd = reinterpret_cast<HWND>(m_config.windowId);
         if (hwnd && IsWindow(hwnd) && !IsIconic(hwnd)) {
-            const QRect rect = windowFrameRect(hwnd);
-            if (rect.width() >= 2 && rect.height() >= 2)
-                return rect;
+            const QRect physical = windowFrameRect(hwnd);
+            if (physical.width() >= 2 && physical.height() >= 2) {
+                // DWM frame bounds are physical pixels; the overlay and
+                // annotation pipeline work in Qt's logical coordinates.
+                const double scale = qMax(1.0, GetDpiForWindow(hwnd) / 96.0);
+                return QRect(qRound(physical.x() / scale), qRound(physical.y() / scale),
+                             qRound(physical.width() / scale),
+                             qRound(physical.height() / scale));
+            }
         }
         return m_lastRect.isValid() ? m_lastRect : QRect(0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN));
     }

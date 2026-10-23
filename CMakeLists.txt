@@ -120,6 +120,7 @@ set(LIGHTREC_SOURCES
 
     src/ui/MainWindow.cpp
     src/ui/CountdownWindow.cpp
+    src/ui/CaptureBorderWindow.cpp
     src/ui/FloatingToolbar.cpp
     src/ui/FloatingRecordDot.cpp
     src/ui/RegionSelector.cpp
@@ -181,6 +182,7 @@ set(LIGHTREC_HEADERS
 
     src/ui/MainWindow.h
     src/ui/CountdownWindow.h
+    src/ui/CaptureBorderWindow.h
     src/ui/FloatingToolbar.h
     src/ui/FloatingRecordDot.h
     src/ui/RegionSelector.h
@@ -277,6 +279,18 @@ if(LIGHTREC_BUILD_TESTS AND FFMPEG_FOUND)
     qt_add_executable(LightRecQrTest tests/QrCodeTest.cpp src/live/QrCode.cpp)
     target_include_directories(LightRecQrTest PRIVATE src)
     target_link_libraries(LightRecQrTest PRIVATE Qt6::Core Qt6::Gui)
+
+    find_package(Qt6 REQUIRED COMPONENTS Test)
+    qt_add_executable(LightRecAnnotationTest
+        tests/AnnotationOverlayTest.cpp
+        src/overlay/AnnotationOverlay.cpp
+        src/overlay/AnnotationModel.cpp
+        src/overlay/AnnotationToolbar.cpp
+        src/core/WindowUtils.cpp)
+    target_include_directories(LightRecAnnotationTest PRIVATE src)
+    target_link_libraries(LightRecAnnotationTest PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test
+        dwmapi psapi shell32 ole32)
 endif()
 
 if(MSVC)
@@ -300,12 +314,13 @@ get_filename_component(MINGW_BIN_DIR "${CMAKE_CXX_COMPILER}" DIRECTORY)
 
 if(WIN32 AND WINDEPLOYQT_EXECUTABLE)
     add_custom_command(TARGET LightRec POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E env
-                "PATH=${QT_BIN_DIR};${MINGW_BIN_DIR};$ENV{PATH}"
-                "${WINDEPLOYQT_EXECUTABLE}"
-                --no-translations --no-system-d3d-compiler --no-opengl-sw
-                --no-quick-import --dir "$<TARGET_FILE_DIR:LightRec>"
-                "$<TARGET_FILE:LightRec>"
+        COMMAND ${CMAKE_COMMAND}
+                "-DWINDEPLOYQT=${WINDEPLOYQT_EXECUTABLE}"
+                "-DTARGET_EXE=$<TARGET_FILE:LightRec>"
+                "-DTARGET_DIR=$<TARGET_FILE_DIR:LightRec>"
+                "-DQT_BIN_DIR=${QT_BIN_DIR}"
+                "-DMINGW_BIN_DIR=${MINGW_BIN_DIR}"
+                -P "${CMAKE_SOURCE_DIR}/cmake/DeployQt.cmake"
         COMMENT "Deploying Qt runtime with windeployqt")
 endif()
 

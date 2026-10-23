@@ -174,7 +174,10 @@ void ToolboxPage::buildUi()
     connect(outputBrowse, &QPushButton::clicked, this, &ToolboxPage::browseOutput);
     connect(m_startButton, &QPushButton::clicked, this, &ToolboxPage::startJob);
     connect(m_cancelButton, &QPushButton::clicked, this, &ToolboxPage::cancelJob);
-    connect(m_inputEdit, &QLineEdit::textChanged, this, [this] { updateOutputSuggestion(); });
+    connect(m_inputEdit, &QLineEdit::textChanged, this, [this] {
+        m_outputEdit->clear();
+        updateOutputSuggestion();
+    });
     connect(m_toolList, &QListWidget::currentRowChanged, this, [this](int row) {
         if (row < 0)
             return;
@@ -530,7 +533,12 @@ QString ToolboxPage::suggestedOutput(const QString &input, const QString &suffix
                                      const QString &extension) const
 {
     const QFileInfo info(input);
-    QString base = info.absolutePath() + QLatin1Char('/') + info.completeBaseName() + suffix;
+    QString cleanBase = info.completeBaseName();
+    // For crash caches such as "clip.mp4.part", completeBaseName() is
+    // "clip.mp4"; strip the inner extension so repair output is "clip_fixed.mp4".
+    if (cleanBase.endsWith(QStringLiteral(".mp4"), Qt::CaseInsensitive))
+        cleanBase.chop(4);
+    QString base = info.absolutePath() + QLatin1Char('/') + cleanBase + suffix;
     QString path = base + QLatin1Char('.') + extension;
     int counter = 2;
     while (QFileInfo::exists(path))
@@ -574,6 +582,10 @@ void ToolboxPage::repairFiles(const QStringList &paths)
 
 void ToolboxPage::setBatchWatermarkFiles(const QStringList &paths)
 {
+    if (m_running) {
+        ui::warn(this, QStringLiteral("批量水印"), QStringLiteral("当前已有处理任务正在进行"));
+        return;
+    }
     m_batchList->clear();
     for (const QString &path : paths)
         m_batchList->addItem(path);
@@ -626,9 +638,10 @@ void ToolboxPage::startJob()
 
     if (m_operation == Watermark) {
         const WatermarkConfig config = currentWatermark();
-        if (config.text.trimmed().isEmpty() && config.imagePath.trimmed().isEmpty()) {
+        const bool hasImage = !config.imagePath.isEmpty() && QFileInfo::exists(config.imagePath);
+        if (config.text.trimmed().isEmpty() && !hasImage) {
             ui::warn(this, QStringLiteral("水印为空"),
-                     QStringLiteral("请填写文字水印或选择图片水印。"));
+                     QStringLiteral("请填写文字水印或选择有效的图片水印。"));
             return;
         }
     }
@@ -673,6 +686,24 @@ void ToolboxPage::processNextBatch()
         }
     }
     QDir().mkpath(QFileInfo(output).absolutePath());
+    if (QFileInfo(output).absoluteFilePath().compare(QFileInfo(input).absoluteFilePath(),
+                                                     Qt::CaseInsensitive) == 0) {
+        appendLog(QStringLiteral("输出文件不能与源文件相同。"));
+        QMessageBox::warning(this, QStringLiteral("输出路径"),
+                             QStringLiteral("输出文件不能覆盖源文件，请重新选择输出路径。"));
+        setRunning(false);
+        return;
+    }
+    if (!m_batchMode && QFileInfo::exists(output)) {
+        const auto answer = QMessageBox::question(
+            this, QStringLiteral("覆盖文件"),
+            QStringLiteral("输出文件已存在，是否覆盖？\n%1").arg(output),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (answer != QMessageBox::Yes) {
+            setRunning(false);
+            return;
+        }
+    }
     m_lastOutput = output;
 
     qint64 durationMs = m_media.durationMs;
@@ -742,6 +773,15 @@ void ToolboxPage::handleFinished(bool success, const QString &message)
 {
     if (!m_running)
         return;
+    if (success && !m_lastOutput.isEmpty()
+        && (!QFileInfo::exists(m_lastOutput) || QFileInfo(m_lastOutput).size() <= 0)) {
+        success = false;
+        appendLog(QStringLiteral("输出文件未生成或为空：%1").arg(m_lastOutput));
+        QMessageBox::warning(this, QStringLiteral("处理失败"),
+                             QStringLiteral("输出文件未生成或为空，请检查源文件与输出路径。"));
+        setRunning(false);
+        return;
+    }
     appendLog(message);
     if (!success) {
         setRunning(false);

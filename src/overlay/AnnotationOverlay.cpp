@@ -16,6 +16,10 @@
 
 #include <algorithm>
 
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
+
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
@@ -58,8 +62,9 @@ void AnnotationOverlay::setOverlayVisible(bool visible)
         show();
         raise();
         WindowUtils::excludeFromCapture(winId());
-        setAttribute(Qt::WA_TransparentForMouseEvents, !m_drawingEnabled);
-        WindowUtils::setClickThrough(winId(), !m_drawingEnabled);
+        const bool interactive = m_drawingEnabled || m_spotlightEnabled || m_magnifierEnabled;
+        setAttribute(Qt::WA_TransparentForMouseEvents, !interactive);
+        WindowUtils::setClickThrough(winId(), !interactive);
     } else {
         hide();
     }
@@ -84,16 +89,20 @@ void AnnotationOverlay::updateInteractiveState()
     const bool interactive = m_drawingEnabled || m_spotlightEnabled || m_magnifierEnabled;
     if (interactive) {
         refreshGeometry();
+        setAttribute(Qt::WA_ShowWithoutActivating, false);
         show();
         raise();
         setAttribute(Qt::WA_TransparentForMouseEvents, false);
         if (winId())
             WindowUtils::setClickThrough(winId(), false);
+        setCursor(Qt::CrossCursor);
+        activateWindow();
         setFocus(Qt::OtherFocusReason);
     } else {
         setAttribute(Qt::WA_TransparentForMouseEvents, true);
         if (winId())
             WindowUtils::setClickThrough(winId(), true);
+        setCursor(Qt::ArrowCursor);
         clearFocus();
     }
     update();
@@ -103,13 +112,6 @@ void AnnotationOverlay::setSpotlightEnabled(bool enabled)
 {
     m_spotlightEnabled = enabled;
     if (enabled) {
-        if (!m_spotlightRect.isValid() || m_spotlightRect.isEmpty()) {
-            const QRect desktop = geometry();
-            const int width = qMax(240, desktop.width() / 3);
-            const int height = qMax(160, desktop.height() / 3);
-            m_spotlightRect = QRect(desktop.center().x() - width / 2,
-                                    desktop.center().y() - height / 2, width, height);
-        }
         m_magnifierEnabled = false;
         m_drawingEnabled = false;
     }
@@ -119,8 +121,6 @@ void AnnotationOverlay::setSpotlightEnabled(bool enabled)
 
 void AnnotationOverlay::setSpotlightRect(const QRect &rect)
 {
-    if (!rect.isValid() || rect.isEmpty())
-        return;
     m_spotlightRect = rect;
     update();
 }
@@ -135,11 +135,6 @@ void AnnotationOverlay::setMagnifierEnabled(bool enabled)
 {
     m_magnifierEnabled = enabled;
     if (enabled) {
-        if (!m_magnifierRect.isValid() || m_magnifierRect.isEmpty()) {
-            const QRect desktop = geometry();
-            m_magnifierRect = QRect(desktop.center().x() - 160, desktop.center().y() - 100,
-                                    320, 200);
-        }
         m_spotlightEnabled = false;
         m_drawingEnabled = false;
     }
@@ -149,8 +144,6 @@ void AnnotationOverlay::setMagnifierEnabled(bool enabled)
 
 void AnnotationOverlay::setMagnifierRect(const QRect &rect)
 {
-    if (!rect.isValid() || rect.isEmpty())
-        return;
     m_magnifierRect = rect;
     update();
 }
@@ -164,8 +157,11 @@ void AnnotationOverlay::setMagnifierOptions(int width, double zoom)
 
 void AnnotationOverlay::setTool(AnnotationTool tool)
 {
+    if (m_tool == tool)
+        return;
     m_tool = tool;
     m_drawing = false;
+    emit toolChanged(tool);
 }
 
 void AnnotationOverlay::setPenColor(const QColor &color)
@@ -233,6 +229,7 @@ void AnnotationOverlay::mousePressEvent(QMouseEvent *event)
         QWidget::mousePressEvent(event);
         return;
     }
+    emit interactionStarted();
 
     if (m_spotlightEnabled || m_magnifierEnabled) {
         m_dragStart = event->globalPosition().toPoint();
@@ -256,6 +253,9 @@ void AnnotationOverlay::mousePressEvent(QMouseEvent *event)
         dialog.setWindowFlag(Qt::WindowStaysOnTopHint, true);
         dialog.setWindowModality(Qt::ApplicationModal);
         dialog.resize(420, 160);
+        dialog.show();
+        // Do not put the text-entry dialog into the recording itself.
+        WindowUtils::excludeFromCapture(dialog.winId());
         dialog.raise();
         dialog.activateWindow();
         if (dialog.exec() == QDialog::Accepted && !dialog.textValue().isEmpty()) {
@@ -270,6 +270,7 @@ void AnnotationOverlay::mousePressEvent(QMouseEvent *event)
                                 QFont::DemiBold);
             m_model->addStroke(stroke);
         }
+        emit interactionStarted();
         return;
     }
 
@@ -359,6 +360,29 @@ void AnnotationOverlay::mouseReleaseEvent(QMouseEvent *event)
 
 void AnnotationOverlay::keyPressEvent(QKeyEvent *event)
 {
+    if (m_drawingEnabled && !m_drawing) {
+        AnnotationTool requested = AnnotationTool::None;
+        switch (event->key()) {
+        case Qt::Key_1:
+        case Qt::Key_P: requested = AnnotationTool::Pen; break;
+        case Qt::Key_2:
+        case Qt::Key_L: requested = AnnotationTool::Line; break;
+        case Qt::Key_3:
+        case Qt::Key_A: requested = AnnotationTool::Arrow; break;
+        case Qt::Key_4:
+        case Qt::Key_R: requested = AnnotationTool::Rect; break;
+        case Qt::Key_5:
+        case Qt::Key_O: requested = AnnotationTool::Ellipse; break;
+        case Qt::Key_6:
+        case Qt::Key_T: requested = AnnotationTool::Text; break;
+        default: break;
+        }
+        if (requested != AnnotationTool::None) {
+            setTool(requested);
+            return;
+        }
+    }
+
     if (event->key() == Qt::Key_Escape) {
         if (m_spotlightEnabled) {
             setSpotlightEnabled(false);
@@ -378,12 +402,41 @@ void AnnotationOverlay::keyPressEvent(QKeyEvent *event)
     QWidget::keyPressEvent(event);
 }
 
+bool AnnotationOverlay::nativeEvent(const QByteArray &eventType, void *message, qintptr *result)
+{
+#ifdef Q_OS_WIN
+    if (eventType == "windows_generic_MSG" || eventType == "windows_dispatcher_MSG") {
+        MSG *msg = static_cast<MSG *>(message);
+        if (msg && msg->message == WM_NCHITTEST
+            && (m_drawingEnabled || m_spotlightEnabled || m_magnifierEnabled)) {
+            if (result)
+                *result = HTCLIENT;
+            return true;
+        }
+    }
+#else
+    Q_UNUSED(eventType)
+    Q_UNUSED(message)
+    Q_UNUSED(result)
+#endif
+    return QWidget::nativeEvent(eventType, message, result);
+}
+
 void AnnotationOverlay::paintEvent(QPaintEvent *event)
 {
     Q_UNUSED(event)
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+
+    // Layered windows let mouse input pass through fully transparent pixels on
+    // Windows.  While a tool is active, paint an almost invisible base layer
+    // (alpha 1) so the whole desktop remains clickable for drawing/selection.
+    if (m_drawingEnabled || m_spotlightEnabled || m_magnifierEnabled)
+        painter.fillRect(rect(), QColor(0, 0, 0, 1));
+
+    if (m_spotlightEnabled)
+        paintSpotlight(painter);
 
     painter.save();
     painter.translate(-geometry().topLeft());
@@ -468,8 +521,6 @@ void AnnotationOverlay::paintEvent(QPaintEvent *event)
     }
     painter.restore();
 
-    if (m_spotlightEnabled)
-        paintSpotlight(painter);
     if (m_mouseEffects)
         paintMouseEffects(painter);
     if (m_keyDisplay)
@@ -506,11 +557,14 @@ void AnnotationOverlay::paintMouseEffects(QPainter &painter) const
         const double progress = (now - ripple.startMs) / static_cast<double>(m_clickDurationMs);
         if (progress < 0.0 || progress > 1.0)
             continue;
+        const QPoint localClick = ripple.position - geometry().topLeft();
+        if (!rect().adjusted(-40, -40, 40, 40).contains(localClick))
+            continue;
         QColor color = ripple.color;
         color.setAlphaF(static_cast<float>((1.0 - progress) * 0.85));
         painter.setPen(QPen(color, 3));
         painter.setBrush(Qt::NoBrush);
-        painter.drawEllipse(QPointF(local), radius + progress * radius * 2.2,
+        painter.drawEllipse(QPointF(localClick), radius + progress * radius * 2.2,
                             radius + progress * radius * 2.2);
     }
     painter.restore();

@@ -8,6 +8,8 @@
 #include <QSize>
 #include <QString>
 
+#include <mutex>
+
 namespace lightrec {
 
 struct JournalEntry {
@@ -49,6 +51,7 @@ public:
 private:
     void write();
 
+    mutable std::mutex m_mutex;
     QString m_sessionFile;
     QJsonObject m_data;
     QString m_finalPath;

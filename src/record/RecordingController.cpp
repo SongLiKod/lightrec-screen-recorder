@@ -28,13 +28,27 @@ RecordingController::RecordingController(OverlayController *overlay, QObject *pa
     connect(this, &RecordingController::workerFinished,
             this, &RecordingController::handleWorkerFinished, Qt::QueuedConnection);
 
-    m_systemAudio.setCallback([this](const QByteArray &data, const AudioFrameFormat &format, qint64 ptsMs) {
-        if (m_pipeline)
-            m_pipeline->pushAudio(0, data, format, ptsMs);
+    auto pushAudio = [this](int track, const QByteArray &data, const AudioFrameFormat &format,
+                            qint64 ptsMs, std::atomic<qint64> &audioEpoch) {
+        if (!m_audioReady.load() || !m_pipeline)
+            return;
+        const qint64 epoch = audioEpoch.load();
+        const qint64 recordEpoch = m_recordStartEpochMs.load();
+        if (epoch <= 0 || recordEpoch <= 0)
+            return;
+        // Audio devices start before the video clock; map their timestamps onto
+        // the shared recording timeline and discard the pre-roll.
+        const qint64 aligned = ptsMs + epoch - recordEpoch;
+        if (aligned >= 0)
+            m_pipeline->pushAudio(track, data, format, aligned);
+    };
+    m_systemAudio.setCallback([this, pushAudio](const QByteArray &data, const AudioFrameFormat &format,
+                                                qint64 ptsMs) {
+        pushAudio(0, data, format, ptsMs, m_systemEpochMs);
     });
-    m_micAudio.setCallback([this](const QByteArray &data, const AudioFrameFormat &format, qint64 ptsMs) {
-        if (m_pipeline)
-            m_pipeline->pushAudio(1, data, format, ptsMs);
+    m_micAudio.setCallback([this, pushAudio](const QByteArray &data, const AudioFrameFormat &format,
+                                             qint64 ptsMs) {
+        pushAudio(1, data, format, ptsMs, m_micEpochMs);
     });
 }
 
@@ -42,6 +56,7 @@ RecordingController::~RecordingController()
 {
     m_stopRequested = true;
     m_paused = false;
+    m_audioReady = false;
     m_elapsedTimer.stop();
 
     m_systemAudio.stop();
@@ -53,7 +68,8 @@ RecordingController::~RecordingController()
         m_pipeline->abort();
         m_pipeline.reset();
     }
-    m_journal.discard();
+    // Keep an unfinished journal for the next launch; only a completed
+    // recording removes it.  Abnormal shutdown therefore remains recoverable.
     if (m_overlay)
         m_overlay->stopSession();
 }
@@ -69,6 +85,11 @@ bool RecordingController::start(const RecordOptions &options, QString *error)
     if (m_state != RecordState::Idle) {
         if (error)
             *error = QStringLiteral("当前正在录制，请先停止");
+        return false;
+    }
+    if (!m_overlay) {
+        if (error)
+            *error = QStringLiteral("叠加模块不可用");
         return false;
     }
 
@@ -124,12 +145,21 @@ bool RecordingController::start(const RecordOptions &options, QString *error)
             m_warnings.append(message);
         emit warning(message);
     });
+    connect(m_pipeline.get(), &MediaPipeline::streamInterrupted, this,
+            [this](const QString &message) {
+        m_streamActive = false;
+        if (!m_warnings.contains(message))
+            m_warnings.append(message);
+        emit streamStatus(message);
+    });
 
     QString pipelineError;
     if (!m_pipeline->open(pipelineOptions, &pipelineError)) {
         m_pipeline.reset();
         m_capture.stop();
         m_overlay->stopSession();
+        if (!m_partPath.isEmpty())
+            QFile::remove(m_partPath);
         setState(RecordState::Idle);
         if (error)
             *error = pipelineError;
@@ -137,9 +167,23 @@ bool RecordingController::start(const RecordOptions &options, QString *error)
     }
 
     m_usedEncoder = m_pipeline->usedEncoder();
+    m_streamActive = m_pipeline->streamActive();
     emit encoderSelected(m_usedEncoder);
     if (m_streamActive)
         emit streamStatus(QStringLiteral("正在连接 RTMP 服务器..."));
+    else if (m_options.stream.enabled)
+        emit streamStatus(QStringLiteral("RTMP 推流未连接，本地录像继续"));
+
+    m_clock.start();
+    m_pausedMs = 0;
+    m_pauseStarted = 0;
+    m_checkpointCounter = 0;
+    m_stopRequested = false;
+    m_paused = false;
+    m_audioReady = false;
+    m_recordStartEpochMs = 0;
+    m_systemEpochMs = 0;
+    m_micEpochMs = 0;
 
     if (m_options.audio.systemEnabled) {
         m_systemAudio.setGainDb(m_options.audio.systemGainDb);
@@ -148,6 +192,8 @@ bool RecordingController::start(const RecordOptions &options, QString *error)
         if (!m_systemAudio.start(true, m_options.audio.systemDeviceId, &audioError)) {
             m_warnings.append(QStringLiteral("系统声音采集失败：%1").arg(audioError));
             emit warning(m_warnings.last());
+        } else {
+            m_systemEpochMs = m_systemAudio.startEpochMs();
         }
     }
     if (m_options.audio.micEnabled) {
@@ -157,6 +203,8 @@ bool RecordingController::start(const RecordOptions &options, QString *error)
         if (!m_micAudio.start(false, m_options.audio.micDeviceId, &audioError)) {
             m_warnings.append(QStringLiteral("麦克风采集失败：%1").arg(audioError));
             emit warning(m_warnings.last());
+        } else {
+            m_micEpochMs = m_micAudio.startEpochMs();
         }
     }
 
@@ -166,12 +214,12 @@ bool RecordingController::start(const RecordOptions &options, QString *error)
         emit warning(journalError);
     }
 
-    m_clock.start();
-    m_pausedMs = 0;
-    m_pauseStarted = 0;
-    m_checkpointCounter = 0;
-    m_stopRequested = false;
-    m_paused = false;
+    // Anchor both audio tracks and video to the same point in time.  Audio may
+    // have been buffered during device initialization, so everything before
+    // this instant is deliberately discarded.
+    m_recordStartEpochMs = QDateTime::currentMSecsSinceEpoch();
+    m_clock.restart();
+    m_audioReady = true;
 
     setState(RecordState::Recording);
     m_elapsedTimer.start();
@@ -214,6 +262,12 @@ void RecordingController::stop()
     setState(RecordState::Stopping);
 }
 
+QRect RecordingController::captureRect() const
+{
+    std::lock_guard<std::mutex> lock(m_captureMutex);
+    return m_capture.captureRect();
+}
+
 bool RecordingController::updateRegion(const QRect &region, QString *error)
 {
     if (m_state != RecordState::Recording && m_state != RecordState::Paused) {
@@ -230,10 +284,14 @@ bool RecordingController::updateRegion(const QRect &region, QString *error)
     VideoConfig config = m_options.video;
     config.mode = CaptureMode::Region;
     config.region = region;
-    if (!m_capture.updateConfig(config, error))
-        return false;
+    {
+        std::lock_guard<std::mutex> lock(m_captureMutex);
+        if (!m_capture.updateConfig(config, error))
+            return false;
+    }
     m_options.video = config;
-    m_overlay->setCaptureRect(region);
+    if (m_overlay)
+        m_overlay->setCaptureRect(region);
     return true;
 }
 
@@ -253,12 +311,17 @@ void RecordingController::captureLoop()
     const HRESULT comResult = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 #endif
     QImage lastFrame;
-    QRect lastRect = m_capture.captureRect();
+    QRect lastRect;
+    {
+        std::lock_guard<std::mutex> captureLock(m_captureMutex);
+        lastRect = m_capture.captureRect();
+    }
     QElapsedTimer frameClock;
     frameClock.start();
     const int frameInterval = std::max(1, 1000 / std::max(1, m_options.video.fps));
     bool success = true;
     QString message = QStringLiteral("录制完成");
+    bool capturedAny = false;
 
     while (!m_stopRequested.load()) {
         if (m_paused.load()) {
@@ -271,17 +334,25 @@ void RecordingController::captureLoop()
 
         QImage frame;
         QString grabError;
-        const bool grabbed = m_capture.grab(frame, std::min(12, frameInterval), &grabError);
+        bool grabbed = false;
+        {
+            std::lock_guard<std::mutex> captureLock(m_captureMutex);
+            grabbed = m_capture.grab(frame, std::min(12, frameInterval), &grabError);
+            if (grabbed && !frame.isNull())
+                lastRect = m_capture.captureRect();
+        }
         if (grabbed && !frame.isNull()) {
             lastFrame = frame;
-            lastRect = m_capture.captureRect();
         } else if (!grabError.isEmpty()) {
             qWarning() << "Capture error:" << grabError;
         }
 
         if (!lastFrame.isNull()) {
+            if (!capturedAny)
+                capturedAny = true;
             const qint64 now = QDateTime::currentMSecsSinceEpoch();
-            const QImage composed = m_overlay->compose(lastFrame, lastRect, now);
+            const QImage composed = m_overlay ? m_overlay->compose(lastFrame, lastRect, now)
+                                              : lastFrame;
             emit frameReady(composed);
             QString encodeError;
             if (!m_pipeline->encodeVideo(composed, ptsMs, &encodeError)) {
@@ -297,9 +368,18 @@ void RecordingController::captureLoop()
             QThread::msleep(static_cast<unsigned long>(frameInterval - spent));
     }
 
+    m_audioReady = false;
     m_systemAudio.stop();
     m_micAudio.stop();
-    m_capture.stop();
+    {
+        std::lock_guard<std::mutex> captureLock(m_captureMutex);
+        m_capture.stop();
+    }
+
+    if (success && !capturedAny) {
+        success = false;
+        message = QStringLiteral("未能捕获任何画面，请检查屏幕捕获是否被其他程序占用");
+    }
 
     QString finalPath = m_outputPath;
     if (m_pipeline) {
@@ -313,10 +393,11 @@ void RecordingController::captureLoop()
     }
 
     if (success) {
-        m_journal.complete();
         if (!m_outputPath.isEmpty() && !QFileInfo::exists(m_outputPath)) {
             success = false;
             message = QStringLiteral("录像文件未能生成，请使用视频修复工具尝试恢复缓存");
+        } else {
+            m_journal.complete();
         }
     } else {
         m_journal.checkpoint(m_clock.elapsed());
@@ -349,6 +430,7 @@ void RecordingController::handleWorkerFinished(bool success, const QString &mess
         m_thread.join();
     m_elapsedTimer.stop();
     m_capture.stop();
+    m_audioReady = false;
     m_systemAudio.stop();
     m_micAudio.stop();
     m_pipeline.reset();

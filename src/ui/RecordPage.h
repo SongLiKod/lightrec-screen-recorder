@@ -22,6 +22,7 @@ public:
 
     RecordOptions options() const;
     void setOptions(const RecordOptions &options);
+    void reloadDefaults();
     void setState(RecordState state);
     void setElapsed(qint64 elapsedMs);
     void setEncoderText(const QString &text);

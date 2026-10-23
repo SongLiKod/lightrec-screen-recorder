@@ -702,8 +702,18 @@ void RecordPage::setOptions(const RecordOptions &options)
         m_cameraOpacitySlider->setValue(qBound(20, m_overlay.cameraOpacity, 100));
     }
     m_cameraOpacityLabel->setText(QStringLiteral("%1%").arg(m_overlay.cameraOpacity));
-    if (!m_overlay.pptImagePath.isEmpty())
-        m_pptButton->setText(QFileInfo(m_overlay.pptImagePath).fileName());
+    if (!m_video.region.isValid()) {
+        m_regionLabel->setText(QStringLiteral("未选择区域"));
+    } else {
+        m_regionLabel->setText(QStringLiteral("%1, %2  ·  %3 × %4")
+                                   .arg(m_video.region.x()).arg(m_video.region.y())
+                                   .arg(m_video.region.width()).arg(m_video.region.height()));
+    }
+    m_windowLabel->setText(m_video.windowTitle.isEmpty() ? QStringLiteral("未选择窗口")
+                                                         : m_video.windowTitle);
+    m_pptButton->setText(m_overlay.pptImagePath.isEmpty()
+                             ? QStringLiteral("选择 PPT 辅助图片")
+                             : QFileInfo(m_overlay.pptImagePath).fileName());
     {
         const QSignalBlocker blocker(m_cameraCombo);
         const int index = m_cameraCombo->findData(m_overlay.cameraDeviceId);
@@ -742,6 +752,101 @@ void RecordPage::updateStateControls()
     m_recordButton->setText(recording ? QStringLiteral("●  录制中") : QStringLiteral("●  开始录制"));
     m_pauseButton->setText(m_state == RecordState::Paused ? QStringLiteral("继续")
                                                           : QStringLiteral("暂停"));
+}
+
+void RecordPage::reloadDefaults()
+{
+    ConfigStore &store = ConfigStore::instance();
+
+    const VideoConfig video = store.videoDefaults();
+    m_video.codec = video.codec;
+    m_video.fps = video.fps;
+    m_video.bitrateKbps = video.bitrateKbps;
+    m_video.captureCursor = video.captureCursor;
+    {
+        const QSignalBlocker blocker(m_codecCombo);
+        m_codecCombo->setCurrentIndex(
+            m_video.codec.compare(QStringLiteral("h265"), Qt::CaseInsensitive) == 0 ? 1 : 0);
+    }
+    {
+        const QSignalBlocker blocker(m_fpsCombo);
+        const int index = m_fpsCombo->findData(m_video.fps);
+        m_fpsCombo->setCurrentIndex(index >= 0 ? index : 2);
+        m_video.fps = m_fpsCombo->currentData().toInt();
+    }
+    {
+        const QSignalBlocker blocker(m_bitrateSlider);
+        m_bitrateSlider->setValue(qBound(2000, m_video.bitrateKbps, 20000));
+        m_video.bitrateKbps = m_bitrateSlider->value();
+    }
+    {
+        const QSignalBlocker blocker(m_cursorCheck);
+        m_cursorCheck->setChecked(m_video.captureCursor);
+    }
+
+    const AudioConfig audio = store.audioDefaults();
+    m_audio.noiseSuppression = audio.noiseSuppression;
+    m_audio.micGainDb = audio.micGainDb;
+    m_audio.systemGainDb = audio.systemGainDb;
+    {
+        const QSignalBlocker blocker(m_denoiseCheck);
+        m_denoiseCheck->setChecked(audio.noiseSuppression);
+    }
+    {
+        const QSignalBlocker blocker(m_micGainSlider);
+        m_micGainSlider->setValue(audio.micGainDb);
+        m_audio.micGainDb = m_micGainSlider->value();
+    }
+    {
+        const QSignalBlocker blocker(m_systemGainSlider);
+        m_systemGainSlider->setValue(audio.systemGainDb);
+        m_audio.systemGainDb = m_systemGainSlider->value();
+    }
+
+    // Apply the visual defaults without discarding the user's current camera
+    // device, camera on/off choice, PPT image, capture mode or region.
+    const OverlayConfig overlay = store.overlayDefaults();
+    m_overlay.penColor = overlay.penColor;
+    m_overlay.penWidth = overlay.penWidth;
+    m_overlay.mouseSize = overlay.mouseSize;
+    m_overlay.leftClickColor = overlay.leftClickColor;
+    m_overlay.rightClickColor = overlay.rightClickColor;
+    m_overlay.clickDurationMs = overlay.clickDurationMs;
+    m_overlay.keyFontSize = overlay.keyFontSize;
+    m_overlay.keyOpacity = overlay.keyOpacity;
+    m_overlay.showMouseHighlight = overlay.showMouseHighlight;
+    m_overlay.showKeys = overlay.showKeys;
+    m_overlay.cameraMirror = overlay.cameraMirror;
+    m_overlay.cameraOpacity = overlay.cameraOpacity;
+    m_overlay.layout = overlay.layout;
+    {
+        const QSignalBlocker blocker(m_mirrorCheck);
+        m_mirrorCheck->setChecked(overlay.cameraMirror);
+    }
+    {
+        const QSignalBlocker blocker(m_mouseCheck);
+        m_mouseCheck->setChecked(overlay.showMouseHighlight);
+    }
+    {
+        const QSignalBlocker blocker(m_keysCheck);
+        m_keysCheck->setChecked(overlay.showKeys);
+    }
+    {
+        const QSignalBlocker blocker(m_cameraOpacitySlider);
+        m_cameraOpacitySlider->setValue(qBound(20, overlay.cameraOpacity, 100));
+        m_overlay.cameraOpacity = m_cameraOpacitySlider->value();
+    }
+    {
+        const QSignalBlocker blocker(m_layoutCombo);
+        const int index = m_layoutCombo->findData(static_cast<int>(overlay.layout));
+        m_layoutCombo->setCurrentIndex(index >= 0 ? index : 0);
+        m_overlay.layout = static_cast<LayoutTemplate>(m_layoutCombo->currentData().toInt());
+    }
+
+    updateBitrateLabel();
+    updateGainLabels();
+    updateLayoutControls();
+    m_cameraOpacityLabel->setText(QStringLiteral("%1%").arg(m_overlay.cameraOpacity));
 }
 
 void RecordPage::setState(RecordState state)

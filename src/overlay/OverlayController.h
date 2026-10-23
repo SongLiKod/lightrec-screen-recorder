@@ -44,6 +44,11 @@ public:
     void setDrawingEnabled(bool enabled);
     bool isDrawingEnabled() const;
     void toggleDrawing();
+    void setDrawingTool(AnnotationTool tool);
+    void selectAnnotationColor(int index);
+    void adjustAnnotationPenWidth(int delta);
+    void undoAnnotation();
+    void clearAnnotation();
 
     void setOverlaysVisible(bool visible);
     bool overlaysVisible() const { return m_config.overlaysVisible; }
@@ -60,6 +65,7 @@ public:
     void setLayout(LayoutTemplate layout);
     void setPptImagePath(const QString &path);
     void updateCameraRect(const QRect &rect);
+    void setFloatingToolbarGeometry(const QRect &geometry);
 
     void startCameraPreview();
     void stopCameraPreview();
@@ -86,8 +92,6 @@ private:
     QSize computeOutputSize(const QRect &captureRect, const QSize &sourceSize) const;
     QPoint defaultKeyPosition() const;
     QRect defaultCameraRect() const;
-    QRect defaultSpotlightRect() const;
-    QRect defaultMagnifierRect() const;
 
     AnnotationModel *m_model = nullptr;
     OverlayCompositor m_compositor;
@@ -99,6 +103,7 @@ private:
 
     OverlayConfig m_config;
     QRect m_captureRect;
+    QRect m_floatingToolbarRect;
     QSize m_outputSize{ 1920, 1080 };
     QImage m_pptImage;
     QVector<MouseRipple> m_ripples;

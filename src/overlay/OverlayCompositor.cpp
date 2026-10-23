@@ -345,16 +345,23 @@ void OverlayCompositor::drawMouse(QPainter &painter, const QRect &screenArea,
         const double progress = (nowMs - ripple.startMs) / static_cast<double>(duration);
         if (progress < 0.0 || progress > 1.0)
             continue;
+        // A click ripple belongs at the click position, not at the current
+        // cursor position (the user may already have moved the mouse).
+        const QPointF rippleCenter(screenArea.x() + (ripple.position.x() - screenRect.x()) * sx,
+                                   screenArea.y() + (ripple.position.y() - screenRect.y()) * sy);
+        if (!screenArea.adjusted(-40, -40, 40, 40).contains(rippleCenter.toPoint()))
+            continue;
         const double rippleRadius = radius + progress * radius * 2.2;
         QColor color = ripple.color;
         color.setAlphaF(static_cast<float>((1.0 - progress) * 0.85));
         painter.setPen(QPen(color, 3));
         painter.setBrush(Qt::NoBrush);
-        painter.drawEllipse(cursor, rippleRadius, rippleRadius);
+        painter.drawEllipse(rippleCenter, rippleRadius, rippleRadius);
 
         painter.setPen(Qt::NoPen);
         painter.setBrush(color);
-        painter.drawEllipse(cursor, 5 + 4 * (1.0 - progress), 5 + 4 * (1.0 - progress));
+        painter.drawEllipse(rippleCenter, 5 + 4 * (1.0 - progress),
+                            5 + 4 * (1.0 - progress));
     }
     painter.restore();
 }
@@ -479,10 +486,20 @@ void OverlayCompositor::drawMagnifier(QPainter &painter, const QRect &screenArea
                        screenArea.bottom() - outputHeight - 24,
                        outputWidth, outputHeight);
 
-    const QRect sourceCanvas(screenArea.x() + static_cast<int>((source.x() - screenRect.x()) * sx),
-                             screenArea.y() + static_cast<int>((source.y() - screenRect.y()) * sy),
-                             static_cast<int>(source.width() * sx),
-                             static_cast<int>(source.height() * sy));
+    const QRect sourceCanvas(screenArea.x()
+                                 + static_cast<int>((source.x() - screenRect.x())
+                                                    * static_cast<double>(screenArea.width())
+                                                    / qMax(1, screenRect.width())),
+                             screenArea.y()
+                                 + static_cast<int>((source.y() - screenRect.y())
+                                                    * static_cast<double>(screenArea.height())
+                                                    / qMax(1, screenRect.height())),
+                             static_cast<int>(source.width()
+                                              * static_cast<double>(screenArea.width())
+                                              / qMax(1, screenRect.width())),
+                             static_cast<int>(source.height()
+                                              * static_cast<double>(screenArea.height())
+                                              / qMax(1, screenRect.height())));
 
     painter.save();
     painter.setBrush(QColor(15, 20, 27, 245));

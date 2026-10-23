@@ -5,6 +5,8 @@
 #include <QPoint>
 #include <QWidget>
 
+class QTimer;
+
 namespace lightrec {
 
 /**
@@ -39,8 +41,10 @@ private:
     int m_opacity = 90;
     bool m_dragging = false;
     bool m_moved = false;
+    bool m_suppressClick = false;
     QPoint m_pressGlobal;
     QPoint m_dragOffset;
+    QTimer *m_clickTimer = nullptr;
 };
 
 } // namespace lightrec

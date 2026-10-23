@@ -48,6 +48,7 @@ private:
     QRect m_lastRect;          // logical / Qt coordinates
     QRect m_lastPhysicalRect;  // desktop pixels
     QSize m_outputSize;
+    QImage m_lastFullFrame;    // raw duplicated desktop, for cursor-only updates
 
     Microsoft::WRL::ComPtr<ID3D11Device> m_device;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> m_context;

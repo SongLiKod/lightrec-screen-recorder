@@ -1,5 +1,5 @@
 param(
-    [string]$BuildDir = "build\Release",
+    [string]$BuildDir = "build",
     [string]$FfmpegDir = "",
     [string]$Output = "dist",
     [string]$Version = "1.1.0",
@@ -10,6 +10,14 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $build = Join-Path $root $BuildDir
 $exe = Join-Path $build "LightRec.exe"
+
+if (-not (Test-Path $exe)) {
+    $releaseExe = Join-Path $build "Release\LightRec.exe"
+    if (Test-Path $releaseExe) {
+        $exe = $releaseExe
+        $build = Split-Path -Parent $releaseExe
+    }
+}
 
 if (-not (Test-Path $exe)) {
     throw "未找到 $exe，请先运行 scripts\build.ps1"

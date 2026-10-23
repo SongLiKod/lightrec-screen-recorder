@@ -57,6 +57,8 @@ public:
 signals:
     void drawingEnabledChanged(bool enabled);
     void overlayVisibilityRequested(bool visible);
+    void toolChanged(lightrec::AnnotationTool tool);
+    void interactionStarted();
     void spotlightRectChanged(const QRect &rect);
     void magnifierRectChanged(const QRect &rect);
     void spotlightExitRequested();
@@ -68,6 +70,7 @@ protected:
     void mouseMoveEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
+    bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
 
 private:
     QPointF toGlobal(const QPointF &local) const;

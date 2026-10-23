@@ -37,11 +37,12 @@ void WindowUtils::setClickThrough(WId windowId, bool enabled)
         return;
     const HWND hwnd = reinterpret_cast<HWND>(windowId);
     LONG_PTR exStyle = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
-    exStyle |= WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE;
-    if (enabled)
-        exStyle |= WS_EX_TRANSPARENT;
-    else
-        exStyle &= ~static_cast<LONG_PTR>(WS_EX_TRANSPARENT);
+    exStyle |= WS_EX_LAYERED | WS_EX_TOOLWINDOW;
+    if (enabled) {
+        exStyle |= WS_EX_TRANSPARENT | WS_EX_NOACTIVATE;
+    } else {
+        exStyle &= ~static_cast<LONG_PTR>(WS_EX_TRANSPARENT | WS_EX_NOACTIVATE);
+    }
     SetWindowLongPtr(hwnd, GWL_EXSTYLE, exStyle);
     SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);

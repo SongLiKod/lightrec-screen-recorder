@@ -25,8 +25,13 @@ RecordingJournal::~RecordingJournal()
 bool RecordingJournal::begin(const RecordOptions &options, const QString &partPath,
                              const QString &finalPath, const QSize &outputSize, QString *error)
 {
+    std::lock_guard<std::mutex> lock(m_mutex);
     if (finalPath.isEmpty()) {
-        // Streaming-only sessions do not need a recovery journal.
+        // Streaming-only sessions do not need a recovery journal.  Forget any
+        // previous session handle but leave its journal file on disk for the
+        // recovery prompt on the next launch.
+        m_sessionFile.clear();
+        m_data = QJsonObject();
         return true;
     }
 
@@ -62,6 +67,7 @@ bool RecordingJournal::begin(const RecordOptions &options, const QString &partPa
 
 void RecordingJournal::checkpoint(qint64 elapsedMs)
 {
+    std::lock_guard<std::mutex> lock(m_mutex);
     if (m_sessionFile.isEmpty())
         return;
     m_data[QStringLiteral("lastElapsedMs")] = elapsedMs;
@@ -81,6 +87,7 @@ void RecordingJournal::write()
 
 void RecordingJournal::complete()
 {
+    std::lock_guard<std::mutex> lock(m_mutex);
     if (m_sessionFile.isEmpty())
         return;
     QFile::remove(m_sessionFile);
@@ -148,8 +155,11 @@ bool RecordingJournal::recover(const JournalEntry &entry, QString *recoveredPath
 
     if (QFileInfo::exists(finalPath)) {
         const QFileInfo info(finalPath);
-        finalPath = info.absolutePath() + QLatin1Char('/') + info.completeBaseName()
-                    + QStringLiteral("_recovered.mp4");
+        const QString base = info.absolutePath() + QLatin1Char('/') + info.completeBaseName();
+        finalPath = base + QStringLiteral("_recovered.mp4");
+        int counter = 2;
+        while (QFileInfo::exists(finalPath))
+            finalPath = QStringLiteral("%1_recovered_%2.mp4").arg(base).arg(counter++);
     }
 
     bool ok = false;

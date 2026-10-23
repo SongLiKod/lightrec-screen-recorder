@@ -51,6 +51,7 @@ public:
     void abort();
 
     bool isOpen() const { return m_open; }
+    bool streamActive() const { return m_streamActive; }
     QString usedEncoder() const { return m_usedEncoder; }
     QStringList warnings() const { return m_warnings; }
     QString finalPath() const { return m_finalPath; }
@@ -58,6 +59,7 @@ public:
 
 signals:
     void warning(const QString &message);
+    void streamInterrupted(const QString &message);
 
 private:
 #ifdef LIGHTREC_HAVE_FFMPEG
@@ -75,6 +77,7 @@ private:
     bool remuxToFinal(QString *error);
     void closeContexts();
     void addWarning(const QString &message);
+    void disableStream(const QString &reason);
     AVStream *addVideoStream(AVFormatContext *context);
     AVStream *addAudioStream(AVFormatContext *context, int track);
     void applyEncoderOptions(AVCodecContext *context, const QString &name);

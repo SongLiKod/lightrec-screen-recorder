@@ -3,6 +3,7 @@
 #include "core/WindowUtils.h"
 
 #include <QGuiApplication>
+#include <QCloseEvent>
 #include <QKeyEvent>
 #include <QPainter>
 #include <QScreen>
@@ -62,6 +63,18 @@ void CountdownWindow::keyPressEvent(QKeyEvent *event)
         return;
     }
     QWidget::keyPressEvent(event);
+}
+
+void CountdownWindow::closeEvent(QCloseEvent *event)
+{
+    // Closing is also used to cancel a countdown from the hotkey / stop flow.
+    // Stop the timer so a stale tick can never start a recording afterwards.
+    if (m_timer && m_timer->isActive()) {
+        m_timer->stop();
+        if (m_remaining > 0)
+            emit canceled();
+    }
+    QWidget::closeEvent(event);
 }
 
 void CountdownWindow::paintEvent(QPaintEvent *event)

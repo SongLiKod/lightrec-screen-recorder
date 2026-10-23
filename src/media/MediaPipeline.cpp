@@ -10,6 +10,7 @@
 #include <QVector>
 
 #include <algorithm>
+#include <mutex>
 
 namespace lightrec {
 
@@ -59,6 +60,10 @@ bool MediaPipeline::open(const Options &options, QString *error)
     m_height = evenDimension(options.outputSize.height() > 0 ? options.outputSize.height() : 1080);
     m_fps = qBound(1, options.video.fps, 120);
     m_streamActive = options.stream.enabled && !options.stream.fullUrl().isEmpty();
+    if (m_streamActive) {
+        static std::once_flag networkInit;
+        std::call_once(networkInit, [] { avformat_network_init(); });
+    }
     m_audioEnabled[0] = options.audio.systemEnabled;
     m_audioEnabled[1] = options.audio.micEnabled;
 
@@ -74,7 +79,7 @@ bool MediaPipeline::open(const Options &options, QString *error)
     }
 
     if (m_streamActive && options.video.codec.compare(QStringLiteral("h265"), Qt::CaseInsensitive) == 0) {
-        addWarning(QStringLiteral("RTMP/FLV 不支持 H.265，推流会话已自动使用 H.264 编码"));
+        addWarning(QStringLiteral("RTMP/FLV 不支持 H.265，本次录制与推流统一使用 H.264"));
     }
 
     if (!openVideoEncoder(error)) {
@@ -292,10 +297,20 @@ bool MediaPipeline::openFile(QString *error)
     m_fileContext = context;
 
     m_videoStream = addVideoStream(context);
-    if (m_audioEnabled[0])
+    if (m_audioEnabled[0]) {
         m_audioStream[0] = addAudioStream(context, 0);
-    if (m_audioEnabled[1])
+        if (!m_audioStream[0]) {
+            m_audioEnabled[0] = false;
+            addWarning(QStringLiteral("系统声音轨道创建失败，已跳过该轨道"));
+        }
+    }
+    if (m_audioEnabled[1]) {
         m_audioStream[1] = addAudioStream(context, 1);
+        if (!m_audioStream[1]) {
+            m_audioEnabled[1] = false;
+            addWarning(QStringLiteral("麦克风轨道创建失败，已跳过该轨道"));
+        }
+    }
 
     if (!m_videoStream) {
         if (error)
@@ -338,6 +353,11 @@ bool MediaPipeline::openStream(QString *error)
     m_streamContext = context;
 
     m_streamVideoStream = addVideoStream(context);
+    if (!m_streamVideoStream) {
+        if (error)
+            *error = QStringLiteral("无法创建 RTMP 视频流");
+        return false;
+    }
     // FLV/RTMP only carries one audio track.  Prefer the microphone (speech),
     // fall back to system audio; local recording keeps both tracks.
     const int streamAudioTrack = m_audioEnabled[1] ? 1 : (m_audioEnabled[0] ? 0 : -1);
@@ -442,7 +462,7 @@ bool MediaPipeline::encodeVideo(const QImage &frame, qint64 ptsMs, QString *erro
     }
 
     const uint8_t *sourceData[4] = { input.constBits(), nullptr, nullptr, nullptr };
-    const int sourceStride[4] = { input.bytesPerLine(), 0, 0, 0 };
+    const int sourceStride[4] = { static_cast<int>(input.bytesPerLine()), 0, 0, 0 };
     sws_scale(m_sws, sourceData, sourceStride, 0, input.height(),
               m_videoFrame->data, m_videoFrame->linesize);
 
@@ -462,13 +482,14 @@ bool MediaPipeline::encodeVideo(const QImage &frame, qint64 ptsMs, QString *erro
         m_packet = av_packet_alloc();
 
     while ((result = avcodec_receive_packet(m_videoEncoder, m_packet)) >= 0) {
-        if (!writePacket(m_fileContext, m_videoStream, m_videoEncoder, m_packet)
-            || !writePacket(m_streamContext, m_streamVideoStream, m_videoEncoder, m_packet)) {
+        if (!writePacket(m_fileContext, m_videoStream, m_videoEncoder, m_packet)) {
             av_packet_unref(m_packet);
             if (error)
                 *error = QStringLiteral("写入视频数据失败");
             return false;
         }
+        if (!writePacket(m_streamContext, m_streamVideoStream, m_videoEncoder, m_packet))
+            disableStream(QStringLiteral("RTMP 推流中断，已继续本地录像"));
         av_packet_unref(m_packet);
     }
 
@@ -590,13 +611,14 @@ bool MediaPipeline::encodeAudioFrame(int track, AVFrame *frame, QString *error)
         m_packet = av_packet_alloc();
 
     while ((result = avcodec_receive_packet(m_audioEncoder[track], m_packet)) >= 0) {
-        if (!writePacket(m_fileContext, m_audioStream[track], m_audioEncoder[track], m_packet)
-            || !writePacket(m_streamContext, m_streamAudioStream[track], m_audioEncoder[track], m_packet)) {
+        if (!writePacket(m_fileContext, m_audioStream[track], m_audioEncoder[track], m_packet)) {
             av_packet_unref(m_packet);
             if (error)
                 *error = QStringLiteral("写入音频数据失败");
             return false;
         }
+        if (!writePacket(m_streamContext, m_streamAudioStream[track], m_audioEncoder[track], m_packet))
+            disableStream(QStringLiteral("RTMP 推流中断，已继续本地录像"));
         av_packet_unref(m_packet);
     }
 
@@ -658,11 +680,14 @@ bool MediaPipeline::drainVideoEncoder(QString *error)
         m_packet = av_packet_alloc();
 
     while ((result = avcodec_receive_packet(m_videoEncoder, m_packet)) >= 0) {
-        if (!writePacket(m_fileContext, m_videoStream, m_videoEncoder, m_packet)
-            || !writePacket(m_streamContext, m_streamVideoStream, m_videoEncoder, m_packet)) {
+        if (!writePacket(m_fileContext, m_videoStream, m_videoEncoder, m_packet)) {
             av_packet_unref(m_packet);
+            if (error)
+                *error = QStringLiteral("刷新视频编码器失败");
             return false;
         }
+        if (!writePacket(m_streamContext, m_streamVideoStream, m_videoEncoder, m_packet))
+            disableStream(QStringLiteral("RTMP 推流中断，已继续本地录像"));
         av_packet_unref(m_packet);
     }
     return true;
@@ -720,13 +745,14 @@ bool MediaPipeline::drainAudioEncoder(int track, QString *error)
         m_packet = av_packet_alloc();
     int receive = 0;
     while ((receive = avcodec_receive_packet(m_audioEncoder[track], m_packet)) >= 0) {
-        if (!writePacket(m_fileContext, m_audioStream[track], m_audioEncoder[track], m_packet)
-            || !writePacket(m_streamContext, m_streamAudioStream[track], m_audioEncoder[track], m_packet)) {
+        if (!writePacket(m_fileContext, m_audioStream[track], m_audioEncoder[track], m_packet)) {
             av_packet_unref(m_packet);
             if (error)
                 *error = QStringLiteral("刷新音频编码器失败");
             return false;
         }
+        if (!writePacket(m_streamContext, m_streamAudioStream[track], m_audioEncoder[track], m_packet))
+            disableStream(QStringLiteral("RTMP 推流中断，已继续本地录像"));
         av_packet_unref(m_packet);
     }
     return true;
@@ -777,6 +803,11 @@ bool MediaPipeline::finish(QString *error)
     if (ok && !m_partPath.isEmpty()) {
         if (!remuxToFinal(error))
             ok = false;
+    }
+    if (ok && m_finalPath.isEmpty() && !m_streamActive) {
+        if (error)
+            *error = QStringLiteral("推流已中断，且本次未生成本地录像");
+        ok = false;
     }
 
     return ok;
@@ -854,6 +885,17 @@ bool MediaPipeline::remuxToFinal(QString *error)
     }
 
     AVPacket *packet = av_packet_alloc();
+    if (!packet) {
+        av_write_trailer(output);
+        avio_closep(&output->pb);
+        avformat_free_context(output);
+        avformat_close_input(&input);
+        if (error)
+            *error = QStringLiteral("无法分配转封装数据包");
+        return false;
+    }
+
+    bool writeOk = true;
     while (av_read_frame(input, packet) >= 0) {
         if (packet->stream_index < 0
             || packet->stream_index >= static_cast<int>(streamMap.size())
@@ -865,15 +907,26 @@ bool MediaPipeline::remuxToFinal(QString *error)
         AVStream *outStream = output->streams[streamMap[packet->stream_index]];
         av_packet_rescale_ts(packet, inStream->time_base, outStream->time_base);
         packet->stream_index = outStream->index;
-        av_interleaved_write_frame(output, packet);
+        if (av_interleaved_write_frame(output, packet) < 0)
+            writeOk = false;
         av_packet_unref(packet);
+        if (!writeOk)
+            break;
     }
     av_packet_free(&packet);
 
-    av_write_trailer(output);
+    const int trailerResult = av_write_trailer(output);
     avio_closep(&output->pb);
     avformat_free_context(output);
     avformat_close_input(&input);
+
+    if (!writeOk || trailerResult < 0
+        || !QFileInfo::exists(m_finalPath) || QFileInfo(m_finalPath).size() <= 0) {
+        QFile::remove(m_finalPath);
+        if (error)
+            *error = QStringLiteral("最终 MP4 写入不完整，已保留缓存文件");
+        return false;
+    }
 
     QFile::remove(m_partPath);
     qInfo() << "Recording finalized:" << m_finalPath;
@@ -956,6 +1009,23 @@ void MediaPipeline::addWarning(const QString &message)
         qWarning() << "MediaPipeline:" << message;
         emit warning(message);
     }
+}
+
+void MediaPipeline::disableStream(const QString &reason)
+{
+    if (!m_streamContext && !m_streamActive)
+        return;
+    m_streamActive = false;
+    if (m_streamContext) {
+        if (m_streamContext->pb)
+            avio_closep(&m_streamContext->pb);
+        avformat_free_context(m_streamContext);
+        m_streamContext = nullptr;
+    }
+    m_streamVideoStream = nullptr;
+    m_streamAudioStream[0] = m_streamAudioStream[1] = nullptr;
+    addWarning(reason);
+    emit streamInterrupted(reason);
 }
 
 #else // !LIGHTREC_HAVE_FFMPEG

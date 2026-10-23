@@ -21,6 +21,11 @@ LanPreview::~LanPreview()
 bool LanPreview::start(const VideoConfig &video, const OverlayConfig &overlay, QString *error)
 {
     stop();
+    if (!m_overlay) {
+        if (error)
+            *error = QStringLiteral("叠加模块不可用");
+        return false;
+    }
     m_video = video;
 
     QString captureError;
@@ -46,7 +51,8 @@ void LanPreview::stop()
         m_thread.join();
     if (m_running) {
         m_capture.stop();
-        m_overlay->stopSession();
+        if (m_overlay)
+            m_overlay->stopSession();
         m_running = false;
     }
 }
@@ -68,6 +74,8 @@ void LanPreview::loop()
             lastRect = m_capture.captureRect();
         }
         if (!lastFrame.isNull()) {
+            if (!m_overlay)
+                break;
             const QImage composed = m_overlay->compose(lastFrame, lastRect,
                                                        QDateTime::currentMSecsSinceEpoch());
             emit frameReady(composed);

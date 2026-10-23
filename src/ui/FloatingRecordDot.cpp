@@ -3,10 +3,12 @@
 #include "core/ConfigStore.h"
 #include "core/WindowUtils.h"
 
+#include <QApplication>
 #include <QGuiApplication>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QScreen>
+#include <QTimer>
 
 namespace lightrec {
 
@@ -22,6 +24,13 @@ FloatingRecordDot::FloatingRecordDot(QWidget *parent)
     setToolTip(QStringLiteral("点击开始录制；拖动可移动；双击打开主界面"));
     setDotSize(ConfigStore::instance().floatingDotSize());
     setOpacity(ConfigStore::instance().toolbarOpacity());
+
+    // Delay the single click briefly so a double click opens the main window
+    // without also toggling a recording as a side effect.
+    m_clickTimer = new QTimer(this);
+    m_clickTimer->setSingleShot(true);
+    m_clickTimer->setInterval(qMax(180, QApplication::doubleClickInterval()));
+    connect(m_clickTimer, &QTimer::timeout, this, [this] { emit toggleRequested(); });
 }
 
 void FloatingRecordDot::setState(RecordState state)
@@ -56,7 +65,7 @@ void FloatingRecordDot::showAtSavedPosition()
         if (parts.size() == 2)
             position = QPoint(parts.at(0).toInt(), parts.at(1).toInt());
     }
-    if (position.isNull()) {
+    if (saved.isEmpty()) {
         QScreen *screen = QGuiApplication::primaryScreen();
         if (screen) {
             const QRect available = screen->availableGeometry();
@@ -140,8 +149,17 @@ void FloatingRecordDot::mouseMoveEvent(QMouseEvent *event)
     const QPoint global = event->globalPosition().toPoint();
     if ((global - m_pressGlobal).manhattanLength() > 4)
         m_moved = true;
-    if (m_moved)
-        move(global - m_dragOffset);
+    if (m_moved) {
+        QPoint target = global - m_dragOffset;
+        if (QScreen *screen = QGuiApplication::screenAt(global)) {
+            const QRect available = screen->availableGeometry();
+            target.setX(qBound(available.left() + 2, target.x(),
+                               available.right() - width() - 2));
+            target.setY(qBound(available.top() + 2, target.y(),
+                               available.bottom() - height() - 2));
+        }
+        move(target);
+    }
     event->accept();
 }
 
@@ -150,19 +168,30 @@ void FloatingRecordDot::mouseReleaseEvent(QMouseEvent *event)
     if (event->button() != Qt::LeftButton)
         return;
     m_dragging = false;
+    if (m_suppressClick) {
+        // The second release of a double click; the double-click handler has
+        // already requested the main window.
+        m_suppressClick = false;
+        event->accept();
+        return;
+    }
     if (m_moved) {
         ConfigStore::instance().setValue(QStringLiteral("ui/dotPos"),
                                          QStringLiteral("%1,%2").arg(pos().x()).arg(pos().y()));
     } else {
-        emit toggleRequested();
+        m_clickTimer->start();
     }
     event->accept();
 }
 
 void FloatingRecordDot::mouseDoubleClickEvent(QMouseEvent *event)
 {
-    if (event->button() == Qt::LeftButton)
+    if (event->button() == Qt::LeftButton) {
+        if (m_clickTimer)
+            m_clickTimer->stop();
+        m_suppressClick = true;
         emit showMainRequested();
+    }
 }
 
 } // namespace lightrec

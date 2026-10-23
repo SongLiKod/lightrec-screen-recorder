@@ -16,6 +16,7 @@ KeyDisplayWindow::KeyDisplayWindow(QWidget *parent)
     setWindowFlags(Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint | Qt::Tool);
     setAttribute(Qt::WA_TranslucentBackground, true);
     setAttribute(Qt::WA_ShowWithoutActivating, true);
+    setAttribute(Qt::WA_TransparentForMouseEvents, true);
     setWindowTitle(QStringLiteral("按键显示"));
 
     m_cleanupTimer.setInterval(250);
@@ -28,6 +29,7 @@ KeyDisplayWindow::KeyDisplayWindow(QWidget *parent)
                                        }),
                         m_entries.end());
         if (m_entries.size() != before) {
+            setAttribute(Qt::WA_TransparentForMouseEvents, m_entries.isEmpty());
             updateSize();
             update();
         }
@@ -43,6 +45,7 @@ void KeyDisplayWindow::setEntries(const QVector<KeyEntry> &entries)
     m_entries = entries;
     while (m_entries.size() > 3)
         m_entries.removeFirst();
+    setAttribute(Qt::WA_TransparentForMouseEvents, m_entries.isEmpty());
     updateSize();
     update();
 }
