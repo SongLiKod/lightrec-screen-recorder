@@ -2,7 +2,9 @@
 #include "media/FFmpegTool.h"
 
 #include <QCoreApplication>
+#include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QImage>
 #include <QProcess>
 #include <QStandardPaths>
@@ -55,9 +57,15 @@ int main(int argc, char *argv[])
     QCoreApplication app(argc, argv);
     QTextStream out(stdout);
 
-    const QString ffmpeg = QStandardPaths::findExecutable(QStringLiteral("ffmpeg"));
+    QString ffmpeg = QStandardPaths::findExecutable(QStringLiteral("ffmpeg"));
     if (ffmpeg.isEmpty()) {
-        out << "ffmpeg not found in PATH\n";
+        const QString adjacent = QCoreApplication::applicationDirPath()
+                                 + QStringLiteral("/ffmpeg.exe");
+        if (QFileInfo::exists(adjacent))
+            ffmpeg = adjacent;
+    }
+    if (ffmpeg.isEmpty()) {
+        out << "ffmpeg not found in PATH or next to the test executable\n";
         return 2;
     }
 
