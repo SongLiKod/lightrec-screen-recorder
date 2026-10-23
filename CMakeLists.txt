@@ -286,12 +286,30 @@ if(LIGHTREC_BUILD_TESTS AND FFMPEG_FOUND)
     target_include_directories(LightRecFileDialogTest PRIVATE src)
     target_link_libraries(LightRecFileDialogTest PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test)
 
+    qt_add_executable(LightRecWatermarkTest
+        tests/WatermarkTest.cpp
+        src/core/AppPaths.cpp
+        src/media/FFmpegTool.cpp
+    )
+    target_include_directories(LightRecWatermarkTest PRIVATE src)
+    target_link_libraries(LightRecWatermarkTest PRIVATE Qt6::Core Qt6::Gui)
+
+    qt_add_executable(LightRecPreviewDialogTest
+        tests/PreviewDialogTest.cpp
+        src/ui/PreviewDialog.cpp
+        src/ui/Widgets.cpp
+    )
+    target_include_directories(LightRecPreviewDialogTest PRIVATE src)
+    target_link_libraries(LightRecPreviewDialogTest PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Multimedia Qt6::MultimediaWidgets Qt6::Test)
+
     find_package(Qt6 REQUIRED COMPONENTS Test)
     qt_add_executable(LightRecAnnotationTest
         tests/AnnotationOverlayTest.cpp
         src/overlay/AnnotationOverlay.cpp
         src/overlay/AnnotationModel.cpp
         src/overlay/AnnotationToolbar.cpp
+        src/overlay/OverlayCompositor.cpp
         src/core/WindowUtils.cpp)
     target_include_directories(LightRecAnnotationTest PRIVATE src)
     target_link_libraries(LightRecAnnotationTest PRIVATE

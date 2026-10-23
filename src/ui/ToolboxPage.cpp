@@ -361,6 +361,8 @@ QWidget *ToolboxPage::buildWatermarkPage()
     m_watermarkPosition->addItem(QStringLiteral("右上角"), QStringLiteral("top-right"));
     m_watermarkPosition->addItem(QStringLiteral("左上角"), QStringLiteral("top-left"));
     m_watermarkPosition->addItem(QStringLiteral("居中"), QStringLiteral("center"));
+    m_watermarkPosition->addItem(QStringLiteral("随机位置（每次处理）"), QStringLiteral("random"));
+    m_watermarkPosition->addItem(QStringLiteral("随机移动（视频中漂移）"), QStringLiteral("drift"));
     layout->addWidget(ui::labeledRow(QStringLiteral("位置"), m_watermarkPosition));
 
     m_watermarkMargin = new QSpinBox(content);

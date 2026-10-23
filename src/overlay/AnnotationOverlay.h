@@ -45,6 +45,9 @@ public:
     void setMagnifierEnabled(bool enabled);
     void setMagnifierRect(const QRect &rect);
     void setMagnifierOptions(int width, double zoom);
+    void setWhiteboardEnabled(bool enabled);
+    void setGridEnabled(bool enabled);
+    void setGuidesEnabled(bool enabled);
     bool isMagnifierEnabled() const { return m_magnifierEnabled; }
     QRect magnifierRect() const { return m_magnifierRect; }
     void setLiveMouse(const QPoint &globalPosition, bool visible,
@@ -75,6 +78,8 @@ protected:
 private:
     QPointF toGlobal(const QPointF &local) const;
     void updateInteractiveState();
+    void paintContent(QPainter &painter, bool includeMagnifier) const;
+    void paintAnnotationBackground(QPainter &painter) const;
     void paintKeyPanel(QPainter &painter) const;
     void paintMouseEffects(QPainter &painter) const;
     void paintSpotlight(QPainter &painter) const;
@@ -106,6 +111,10 @@ private:
     QRect m_magnifierRect;
     int m_magnifierWidth = 420;
     double m_magnifierZoom = 2.0;
+    bool m_whiteboard = false;
+    bool m_grid = false;
+    bool m_guides = false;
+    bool m_erasing = false;
     QPoint m_dragStart;
     QRect m_dragStartRect;
 

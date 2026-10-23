@@ -4,6 +4,7 @@
 
 #include <QDir>
 #include <QFileInfo>
+#include <QRandomGenerator>
 #include <QStandardPaths>
 #include <QTimer>
 
@@ -22,8 +23,27 @@ QString filterPath(const QString &path)
     return result;
 }
 
+QString pickAnchor(const QString &start, const QString &center, const QString &end)
+{
+    switch (QRandomGenerator::global()->bounded(3)) {
+    case 0:
+        return start;
+    case 1:
+        return center;
+    default:
+        return end;
+    }
+}
+
 QString overlayX(const QString &position, int margin)
 {
+    if (position == QStringLiteral("random"))
+        return pickAnchor(QString::number(margin), QStringLiteral("(W-w)/2"),
+                          QStringLiteral("W-w-%1").arg(margin));
+    if (position == QStringLiteral("drift")) {
+        return QStringLiteral("%1+(W-w-2*%1)*(0.5+0.5*sin(t*0.37+1.0))")
+            .arg(margin);
+    }
     if (position.contains(QStringLiteral("left")))
         return QString::number(margin);
     if (position.contains(QStringLiteral("center")))
@@ -33,11 +53,50 @@ QString overlayX(const QString &position, int margin)
 
 QString overlayY(const QString &position, int margin)
 {
+    if (position == QStringLiteral("random"))
+        return pickAnchor(QString::number(margin), QStringLiteral("(H-h)/2"),
+                          QStringLiteral("H-h-%1").arg(margin));
+    if (position == QStringLiteral("drift")) {
+        return QStringLiteral("%1+(H-h-2*%1)*(0.5+0.5*sin(t*0.53+2.0))")
+            .arg(margin);
+    }
     if (position.contains(QStringLiteral("top")))
         return QString::number(margin);
     if (position.contains(QStringLiteral("center")))
         return QStringLiteral("(H-h)/2");
     return QStringLiteral("H-h-%1").arg(margin);
+}
+
+QString textX(const QString &position, int margin)
+{
+    if (position == QStringLiteral("random"))
+        return pickAnchor(QString::number(margin), QStringLiteral("(W-text_w)/2"),
+                          QStringLiteral("W-text_w-%1").arg(margin));
+    if (position == QStringLiteral("drift")) {
+        return QStringLiteral("%1+(W-text_w-2*%1)*(0.5+0.5*sin(t*0.37+1.0))")
+            .arg(margin);
+    }
+    if (position.contains(QStringLiteral("left")))
+        return QString::number(margin);
+    if (position.contains(QStringLiteral("center")))
+        return QStringLiteral("(W-text_w)/2");
+    return QStringLiteral("W-text_w-%1").arg(margin);
+}
+
+QString textY(const QString &position, int margin)
+{
+    if (position == QStringLiteral("random"))
+        return pickAnchor(QString::number(margin), QStringLiteral("(H-text_h)/2"),
+                          QStringLiteral("H-text_h-%1").arg(margin));
+    if (position == QStringLiteral("drift")) {
+        return QStringLiteral("%1+(H-text_h-2*%1)*(0.5+0.5*sin(t*0.53+2.0))")
+            .arg(margin);
+    }
+    if (position.contains(QStringLiteral("top")))
+        return QString::number(margin);
+    if (position.contains(QStringLiteral("center")))
+        return QStringLiteral("(H-text_h)/2");
+    return QStringLiteral("H-text_h-%1").arg(margin);
 }
 
 QString fontFile()
@@ -351,7 +410,8 @@ QStringList FFmpegTool::watermarkArguments(const QString &input, const QString &
         drawText += QStringLiteral(":fontcolor=0x%1@%2:fontsize=%3:x=%4:y=%5")
                         .arg(config.color.name(QColor::HexRgb).mid(1), alpha)
                         .arg(config.fontSize)
-                        .arg(x, y);
+                        .arg(textX(config.position, config.margin),
+                             textY(config.position, config.margin));
         arguments << QStringLiteral("-vf") << drawText;
     }
 

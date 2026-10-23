@@ -331,7 +331,7 @@ void MainWindow::wireSignals()
     connect(m_toolbar, &FloatingToolbar::drawToggled, this, [this](bool enabled) {
         m_overlay->setDrawingEnabled(enabled);
         m_toolbar->setHint(enabled
-                               ? QStringLiteral("标注模式：按 1–6（或 P/L/A/R/O/T）切换工具；点击“退出”或按 Esc 结束")
+                               ? QStringLiteral("标注模式：按 1–7（或 P/L/A/R/O/T/E）切换工具；点击“退出”或按 Esc 结束")
                                : QStringLiteral("标注已关闭 · 高亮/放大：拖拽选框调整 · 再次点击按钮或 Esc 退出"));
     });
     connect(m_toolbar, &FloatingToolbar::overlaysToggled, this, [this](bool visible) {
@@ -382,7 +382,7 @@ void MainWindow::wireSignals()
         m_toolbar->setDrawEnabled(enabled);
         if (enabled) {
             m_toolbar->setHint(QStringLiteral(
-                "标注模式：按 1–6（或 P/L/A/R/O/T）切换工具；点击“退出”或按 Esc 结束"));
+                "标注模式：按 1–7（或 P/L/A/R/O/T/E）切换工具；点击“退出”或按 Esc 结束"));
         } else {
             m_toolbar->setHint(QStringLiteral(
                 "标注/高亮/放大：点击开启，再次点击或按 Esc 退出  ·  拖动左侧手柄可移动"));
@@ -856,7 +856,7 @@ void MainWindow::beginRecording(const RecordOptions &options)
     if (ConfigStore::instance().showFloatingToolbar()) {
         m_toolbar->showToolbar();
         m_toolbar->setHint(QStringLiteral(
-            "标注：1–6 切换工具  ·  高亮/放大：拖拽选框调整  ·  "
+            "标注：1–7 切换工具（含橡皮）  ·  高亮/放大：拖拽选框调整  ·  "
             "再次点击工具按钮或按 Esc 退出  ·  拖动左侧手柄可移动"));
         m_toolbar->showMessage(QStringLiteral("录制已开始 · 可拖动左侧手柄调整位置"));
     } else {
@@ -1147,6 +1147,8 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
                     case Qt::Key_O: tool = AnnotationTool::Ellipse; break;
                     case Qt::Key_6:
                     case Qt::Key_T: tool = AnnotationTool::Text; break;
+                    case Qt::Key_7:
+                    case Qt::Key_E: tool = AnnotationTool::Eraser; break;
                     default: break;
                     }
                     if (tool != AnnotationTool::None) {

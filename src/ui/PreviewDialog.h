@@ -5,6 +5,7 @@
 class QLabel;
 class QMediaPlayer;
 class QAudioOutput;
+class QPushButton;
 class QSlider;
 class QVideoWidget;
 
@@ -19,11 +20,14 @@ public:
 
 protected:
     void showEvent(QShowEvent *event) override;
+    bool eventFilter(QObject *watched, QEvent *event) override;
+    void keyPressEvent(QKeyEvent *event) override;
 
 private:
     void updatePosition(qint64 position);
     void updateDuration(qint64 duration);
     void togglePlay();
+    void toggleFullScreen();
 
     QString m_filePath;
     QMediaPlayer *m_player = nullptr;
@@ -32,6 +36,7 @@ private:
     QSlider *m_positionSlider = nullptr;
     QLabel *m_timeLabel = nullptr;
     QLabel *m_statusLabel = nullptr;
+    QPushButton *m_fullscreenButton = nullptr;
     bool m_playing = false;
 };
 

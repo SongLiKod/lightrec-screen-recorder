@@ -4,6 +4,7 @@
 #include <QDateTime>
 #include <QFontMetrics>
 #include <QGuiApplication>
+#include <QImage>
 #include <QInputDialog>
 #include <QKeyEvent>
 #include <QLineEdit>
@@ -155,12 +156,37 @@ void AnnotationOverlay::setMagnifierOptions(int width, double zoom)
     update();
 }
 
+void AnnotationOverlay::setWhiteboardEnabled(bool enabled)
+{
+    if (m_whiteboard == enabled)
+        return;
+    m_whiteboard = enabled;
+    update();
+}
+
+void AnnotationOverlay::setGridEnabled(bool enabled)
+{
+    if (m_grid == enabled)
+        return;
+    m_grid = enabled;
+    update();
+}
+
+void AnnotationOverlay::setGuidesEnabled(bool enabled)
+{
+    if (m_guides == enabled)
+        return;
+    m_guides = enabled;
+    update();
+}
+
 void AnnotationOverlay::setTool(AnnotationTool tool)
 {
     if (m_tool == tool)
         return;
     m_tool = tool;
     m_drawing = false;
+    m_erasing = false;
     emit toolChanged(tool);
 }
 
@@ -245,6 +271,13 @@ void AnnotationOverlay::mousePressEvent(QMouseEvent *event)
         return;
     }
 
+    if (m_tool == AnnotationTool::Eraser) {
+        m_erasing = true;
+        m_model->eraseAt(toGlobal(event->position()), qMax<qreal>(8.0, m_penWidth * 2.5));
+        update();
+        return;
+    }
+
     if (m_tool == AnnotationTool::Text) {
         QInputDialog dialog(nullptr);
         dialog.setWindowTitle(QStringLiteral("文字标注"));
@@ -308,6 +341,12 @@ void AnnotationOverlay::mouseMoveEvent(QMouseEvent *event)
         return;
     }
 
+    if (m_erasing) {
+        m_model->eraseAt(toGlobal(event->position()), qMax<qreal>(8.0, m_penWidth * 2.5));
+        update();
+        return;
+    }
+
     if (!m_drawing)
         return;
     const QPointF point = toGlobal(event->position());
@@ -324,6 +363,12 @@ void AnnotationOverlay::mouseReleaseEvent(QMouseEvent *event)
 {
     if (event->button() != Qt::LeftButton)
         return;
+
+    if (m_erasing) {
+        m_erasing = false;
+        update();
+        return;
+    }
 
     if (m_dragMode == DragMode::Spotlight) {
         m_dragMode = DragMode::None;
@@ -375,6 +420,8 @@ void AnnotationOverlay::keyPressEvent(QKeyEvent *event)
         case Qt::Key_O: requested = AnnotationTool::Ellipse; break;
         case Qt::Key_6:
         case Qt::Key_T: requested = AnnotationTool::Text; break;
+        case Qt::Key_7:
+        case Qt::Key_E: requested = AnnotationTool::Eraser; break;
         default: break;
         }
         if (requested != AnnotationTool::None) {
@@ -428,12 +475,52 @@ void AnnotationOverlay::paintEvent(QPaintEvent *event)
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+    paintContent(painter, true);
+}
 
+void AnnotationOverlay::paintAnnotationBackground(QPainter &painter) const
+{
+    if (!m_whiteboard)
+        return;
+
+    painter.save();
+    painter.fillRect(rect(), QColor(0xF7, 0xF8, 0xFB));
+
+    if (m_grid) {
+        painter.setPen(QPen(QColor(0xD8, 0xDE, 0xE8), 1));
+        const int step = 48;
+        for (int x = step; x < width(); x += step)
+            painter.drawLine(x, 0, x, height());
+        for (int y = step; y < height(); y += step)
+            painter.drawLine(0, y, width(), y);
+    }
+
+    if (m_guides) {
+        QPen guide(QColor(0x9A, 0xAA, 0xBE), 1, Qt::DashLine);
+        guide.setDashPattern({ 6, 5 });
+        painter.setPen(guide);
+        for (int i = 1; i <= 2; ++i) {
+            const int x = width() * i / 3;
+            const int y = height() * i / 3;
+            painter.drawLine(x, 0, x, height());
+            painter.drawLine(0, y, width(), y);
+        }
+        painter.setPen(QPen(QColor(0x2D, 0x8C, 0xF0, 170), 1, Qt::DashLine));
+        painter.drawLine(width() / 2, 0, width() / 2, height());
+        painter.drawLine(0, height() / 2, width(), height() / 2);
+    }
+    painter.restore();
+}
+
+void AnnotationOverlay::paintContent(QPainter &painter, bool includeMagnifier) const
+{
     // Layered windows let mouse input pass through fully transparent pixels on
     // Windows.  While a tool is active, paint an almost invisible base layer
     // (alpha 1) so the whole desktop remains clickable for drawing/selection.
     if (m_drawingEnabled || m_spotlightEnabled || m_magnifierEnabled)
         painter.fillRect(rect(), QColor(0, 0, 0, 1));
+
+    paintAnnotationBackground(painter);
 
     if (m_spotlightEnabled)
         paintSpotlight(painter);
@@ -481,6 +568,7 @@ void AnnotationOverlay::paintEvent(QPaintEvent *event)
             painter.setFont(stroke.font);
             painter.drawText(stroke.start, stroke.text);
             break;
+        case AnnotationTool::Eraser:
         case AnnotationTool::None:
             break;
         }
@@ -525,7 +613,7 @@ void AnnotationOverlay::paintEvent(QPaintEvent *event)
         paintMouseEffects(painter);
     if (m_keyDisplay)
         paintKeyPanel(painter);
-    if (m_magnifierEnabled)
+    if (includeMagnifier && m_magnifierEnabled)
         paintMagnifier(painter);
 }
 
@@ -607,11 +695,30 @@ void AnnotationOverlay::paintMagnifier(QPainter &painter) const
     if (clamped.isEmpty())
         return;
     const QPixmap fullScreen = screen->grabWindow(0);
-    const QPixmap snapshot = fullScreen.isNull()
-                                 ? QPixmap()
-                                 : fullScreen.copy(clamped.x() - screenGeometry.x(),
-                                                   clamped.y() - screenGeometry.y(),
-                                                   clamped.width(), clamped.height());
+    QPixmap snapshot = fullScreen.isNull()
+                           ? QPixmap()
+                           : fullScreen.copy(clamped.x() - screenGeometry.x(),
+                                             clamped.y() - screenGeometry.y(),
+                                             clamped.width(), clamped.height());
+
+    // Magnify the screen together with the annotations and annotation
+    // background. Render this overlay without the magnifier itself to avoid
+    // recursion, then crop exactly the selected region.
+    if (!snapshot.isNull()) {
+        QImage overlayImage(size(), QImage::Format_ARGB32_Premultiplied);
+        overlayImage.fill(Qt::transparent);
+        QPainter overlayPainter(&overlayImage);
+        overlayPainter.setRenderHint(QPainter::Antialiasing, true);
+        overlayPainter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+        paintContent(overlayPainter, false);
+        overlayPainter.end();
+
+        const QRect localSource = source.translated(-geometry().topLeft());
+        const QImage annotation = overlayImage.copy(localSource);
+        QPainter snapshotPainter(&snapshot);
+        snapshotPainter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+        snapshotPainter.drawImage(snapshot.rect(), annotation);
+    }
 
     const int outputWidth = qBound(200, m_magnifierWidth, width() / 2);
     const int outputHeight = qMax(120, outputWidth * clamped.height() / qMax(1, clamped.width()));

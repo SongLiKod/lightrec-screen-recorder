@@ -4,10 +4,13 @@
 
 #include <QAudioOutput>
 #include <QDesktopServices>
+#include <QEvent>
 #include <QFileInfo>
 #include <QHBoxLayout>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QMediaPlayer>
+#include <QMouseEvent>
 #include <QPushButton>
 #include <QShowEvent>
 #include <QSlider>
@@ -42,11 +45,15 @@ PreviewDialog::PreviewDialog(const QString &filePath, QWidget *parent)
     m_timeLabel = new QLabel(QStringLiteral("00:00 / 00:00"), this);
     m_timeLabel->setObjectName(QStringLiteral("mutedLabel"));
     auto *openFolder = ui::secondaryButton(QStringLiteral("打开目录"), this);
+    m_fullscreenButton = ui::secondaryButton(QStringLiteral("全屏"), this);
+    m_fullscreenButton->setToolTip(QStringLiteral("全屏 / 退出全屏（F11，或双击视频）"));
     controls->addWidget(playButton);
     controls->addWidget(m_positionSlider, 1);
     controls->addWidget(m_timeLabel);
     controls->addWidget(openFolder);
+    controls->addWidget(m_fullscreenButton);
     layout->addLayout(controls);
+    m_videoWidget->installEventFilter(this);
 
     m_player = new QMediaPlayer(this);
     m_audioOutput = new QAudioOutput(this);
@@ -73,6 +80,7 @@ PreviewDialog::PreviewDialog(const QString &filePath, QWidget *parent)
     connect(openFolder, &QPushButton::clicked, this, [this] {
         QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(m_filePath).absolutePath()));
     });
+    connect(m_fullscreenButton, &QPushButton::clicked, this, &PreviewDialog::toggleFullScreen);
 
     m_player->play();
 }
@@ -88,6 +96,46 @@ void PreviewDialog::showEvent(QShowEvent *event)
     QDialog::showEvent(event);
     if (m_player && m_player->playbackState() != QMediaPlayer::PlayingState)
         m_player->play();
+}
+
+bool PreviewDialog::eventFilter(QObject *watched, QEvent *event)
+{
+    if (watched == m_videoWidget && event->type() == QEvent::MouseButtonDblClick) {
+        auto *mouseEvent = static_cast<QMouseEvent *>(event);
+        if (mouseEvent->button() == Qt::LeftButton) {
+            toggleFullScreen();
+            return true;
+        }
+    }
+    return QDialog::eventFilter(watched, event);
+}
+
+void PreviewDialog::keyPressEvent(QKeyEvent *event)
+{
+    if (event->key() == Qt::Key_F11) {
+        toggleFullScreen();
+        event->accept();
+        return;
+    }
+    if (event->key() == Qt::Key_Escape && isFullScreen()) {
+        toggleFullScreen();
+        event->accept();
+        return;
+    }
+    QDialog::keyPressEvent(event);
+}
+
+void PreviewDialog::toggleFullScreen()
+{
+    if (isFullScreen()) {
+        showNormal();
+        if (m_fullscreenButton)
+            m_fullscreenButton->setText(QStringLiteral("全屏"));
+    } else {
+        showFullScreen();
+        if (m_fullscreenButton)
+            m_fullscreenButton->setText(QStringLiteral("退出全屏"));
+    }
 }
 
 void PreviewDialog::togglePlay()

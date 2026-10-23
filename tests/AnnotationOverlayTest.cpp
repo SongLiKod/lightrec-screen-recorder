@@ -1,6 +1,7 @@
 #include "overlay/AnnotationModel.h"
 #include "overlay/AnnotationOverlay.h"
 #include "overlay/AnnotationToolbar.h"
+#include "overlay/OverlayCompositor.h"
 
 #include <QApplication>
 #include <QInputDialog>
@@ -91,6 +92,102 @@ int main(int argc, char *argv[])
     if (toolbar.penWidth() != qMin(24, beforeWidth + 2)) {
         qCritical("Pen width shortcut adjustment failed");
         return 8;
+    }
+
+    AnnotationStroke eraserTarget;
+    eraserTarget.tool = AnnotationTool::Pen;
+    eraserTarget.color = Qt::red;
+    eraserTarget.width = 6;
+    eraserTarget.start = QPointF(20, 20);
+    eraserTarget.points = { QPointF(20, 20), QPointF(80, 80) };
+    eraserTarget.end = QPointF(80, 80);
+    model.addStroke(eraserTarget);
+    if (model.eraseAt(QPointF(50, 50), 8) != 1) {
+        qCritical("Eraser did not remove the touched stroke");
+        return 9;
+    }
+
+    overlay.setWhiteboardEnabled(true);
+    overlay.setGridEnabled(true);
+    overlay.setGuidesEnabled(true);
+    QImage whiteboard(overlay.size(), QImage::Format_ARGB32_Premultiplied);
+    whiteboard.fill(Qt::transparent);
+    overlay.render(&whiteboard);
+    const QColor background = whiteboard.pixelColor(10, 10);
+    if (background.alpha() < 200 || background.lightness() < 220) {
+        qCritical("Whiteboard background was not rendered");
+        return 10;
+    }
+    overlay.setWhiteboardEnabled(false);
+
+    AnnotationStroke uiMagnifiedStroke;
+    uiMagnifiedStroke.tool = AnnotationTool::Pen;
+    uiMagnifiedStroke.color = QColor(255, 0, 0);
+    uiMagnifiedStroke.width = 10;
+    uiMagnifiedStroke.start = QPointF(120, 120);
+    uiMagnifiedStroke.points = { QPointF(120, 120), QPointF(160, 160) };
+    uiMagnifiedStroke.end = QPointF(160, 160);
+    model.addStroke(uiMagnifiedStroke);
+    overlay.setMagnifierRect(QRect(100, 100, 200, 150));
+    overlay.setMagnifierOptions(400, 2.0);
+    overlay.setMagnifierEnabled(true);
+    QImage uiRendered(overlay.size(), QImage::Format_ARGB32_Premultiplied);
+    uiRendered.fill(Qt::transparent);
+    overlay.render(&uiRendered);
+    const int uiMagnifierWidth = qBound(200, 400, overlay.width() / 2);
+    const int uiMagnifierHeight = qMax(120, uiMagnifierWidth * 150 / 200);
+    const int uiMagnifierLeft = overlay.width() - uiMagnifierWidth - 24;
+    const int uiMagnifierTop = overlay.height() - uiMagnifierHeight - 24;
+    int uiRedPixels = 0;
+    for (int y = uiMagnifierTop; y < uiMagnifierTop + uiMagnifierHeight && y < uiRendered.height(); ++y) {
+        for (int x = uiMagnifierLeft; x < uiMagnifierLeft + uiMagnifierWidth && x < uiRendered.width(); ++x) {
+            const QRgb pixel = uiRendered.pixel(x, y);
+            if (qRed(pixel) > 150 && qGreen(pixel) < 100 && qBlue(pixel) < 100)
+                ++uiRedPixels;
+        }
+    }
+    if (uiRedPixels < 5) {
+        qCritical("Overlay magnifier did not include annotations (%d red pixels, size %dx%d, model %d)",
+                  uiRedPixels, uiRendered.width(), uiRendered.height(), model.count());
+        return 12;
+    }
+    overlay.setMagnifierEnabled(false);
+
+    OverlayCompositor compositor;
+    compositor.setOutputSize(QSize(800, 600));
+    OverlayConfig magnifierConfig;
+    magnifierConfig.overlaysVisible = true;
+    magnifierConfig.showMouseHighlight = false;
+    magnifierConfig.showKeys = false;
+    magnifierConfig.magnifierEnabled = true;
+    magnifierConfig.magnifierRect = QRect(100, 100, 200, 150);
+    magnifierConfig.magnifierWidth = 400;
+    compositor.setConfig(magnifierConfig);
+
+    AnnotationStroke magnifiedStroke;
+    magnifiedStroke.tool = AnnotationTool::Pen;
+    magnifiedStroke.color = QColor(255, 0, 0);
+    magnifiedStroke.width = 10;
+    magnifiedStroke.start = QPointF(150, 150);
+    magnifiedStroke.points = { QPointF(150, 150), QPointF(250, 250) };
+    magnifiedStroke.end = QPointF(250, 250);
+    compositor.setStrokes({ magnifiedStroke });
+
+    QImage screen(800, 600, QImage::Format_ARGB32);
+    screen.fill(Qt::black);
+    const QImage composed = compositor.compose(screen, QRect(0, 0, 800, 600), 0);
+    const QRect magnifierOutput(376, 276, 400, 300);
+    int redPixels = 0;
+    for (int y = magnifierOutput.top(); y <= magnifierOutput.bottom() && y < composed.height(); ++y) {
+        for (int x = magnifierOutput.left(); x <= magnifierOutput.right() && x < composed.width(); ++x) {
+            const QRgb pixel = composed.pixel(x, y);
+            if (qRed(pixel) > 150 && qGreen(pixel) < 100 && qBlue(pixel) < 100)
+                ++redPixels;
+        }
+    }
+    if (redPixels < 5) {
+        qCritical("Magnifier did not include annotation content (%d red pixels)", redPixels);
+        return 11;
     }
     return 0;
 }

@@ -99,7 +99,7 @@ FloatingToolbar::FloatingToolbar(QWidget *parent)
     sep1->setStyleSheet(QStringLiteral("color: rgba(255,255,255,40);"));
     layout->addWidget(sep1);
 
-    m_drawButton = makeButton(QStringLiteral("标注"), QStringLiteral("开启 / 关闭实时标注画板（1–6 切换工具）"), this);
+    m_drawButton = makeButton(QStringLiteral("标注"), QStringLiteral("开启 / 关闭实时标注画板（1–7 切换工具，含橡皮）"), this);
     m_drawButton->setCheckable(true);
     m_overlayButton = makeButton(QStringLiteral("叠加"), QStringLiteral("显示 / 隐藏全部叠加元素"), this);
     m_overlayButton->setCheckable(true);
@@ -454,7 +454,7 @@ void FloatingToolbar::refreshShortcutHints()
         m_pauseButton->setToolTip(withShortcut(QStringLiteral("暂停 / 继续"), store.hotkeyPause()));
     if (m_drawButton) {
         m_drawButton->setToolTip(withShortcut(
-            QStringLiteral("开启 / 关闭实时标注画板（1–6 切换工具）"), store.hotkeyDraw()));
+            QStringLiteral("开启 / 关闭实时标注画板（1–7 切换工具，含橡皮）"), store.hotkeyDraw()));
     }
     if (m_overlayButton)
         m_overlayButton->setToolTip(withShortcut(QStringLiteral("显示 / 隐藏全部叠加元素"),

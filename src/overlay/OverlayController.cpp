@@ -52,6 +52,27 @@ OverlayController::OverlayController(QObject *parent)
     });
     connect(m_toolbar, &AnnotationToolbar::undoRequested, m_model, &AnnotationModel::undo);
     connect(m_toolbar, &AnnotationToolbar::clearRequested, m_model, &AnnotationModel::clear);
+    connect(m_toolbar, &AnnotationToolbar::whiteboardToggled, this, [this](bool enabled) {
+        m_config.annotationWhiteboard = enabled;
+        m_overlay->setWhiteboardEnabled(enabled);
+        m_compositor.setConfig(m_config);
+        refreshCompositor();
+        emit configChanged(m_config);
+    });
+    connect(m_toolbar, &AnnotationToolbar::gridToggled, this, [this](bool enabled) {
+        m_config.annotationGrid = enabled;
+        m_overlay->setGridEnabled(enabled);
+        m_compositor.setConfig(m_config);
+        refreshCompositor();
+        emit configChanged(m_config);
+    });
+    connect(m_toolbar, &AnnotationToolbar::guidesToggled, this, [this](bool enabled) {
+        m_config.annotationGuides = enabled;
+        m_overlay->setGuidesEnabled(enabled);
+        m_compositor.setConfig(m_config);
+        refreshCompositor();
+        emit configChanged(m_config);
+    });
     connect(m_toolbar, &AnnotationToolbar::hideRequested, this, [this] {
         setOverlaysVisible(false);
     });
@@ -163,6 +184,9 @@ void OverlayController::startSession(const QRect &captureRect, const QSize &sour
     m_overlay->setMagnifierRect(m_config.magnifierRect);
     m_overlay->setSpotlightDim(m_config.spotlightDim);
     m_overlay->setMagnifierOptions(m_config.magnifierWidth, m_config.magnifierZoom);
+    m_overlay->setWhiteboardEnabled(m_config.annotationWhiteboard);
+    m_overlay->setGridEnabled(m_config.annotationGrid);
+    m_overlay->setGuidesEnabled(m_config.annotationGuides);
     m_overlay->setOverlayVisible(m_config.overlaysVisible);
 
     m_keyWindow->setStyle(m_config.keyFontSize, m_config.keyOpacity);
@@ -254,6 +278,9 @@ void OverlayController::applyConfigToWindows()
                              m_config.rightClickColor, m_config.clickDurationMs);
     m_overlay->setKeyDisplayEnabled(m_config.showKeys);
     m_overlay->setKeyStyle(m_config.keyFontSize, m_config.keyOpacity, m_config.keyPosition);
+    m_overlay->setWhiteboardEnabled(m_config.annotationWhiteboard);
+    m_overlay->setGridEnabled(m_config.annotationGrid);
+    m_overlay->setGuidesEnabled(m_config.annotationGuides);
     m_keyWindow->setStyle(m_config.keyFontSize, m_config.keyOpacity);
     if (m_config.keyPosition.x() >= 0)
         m_keyWindow->setGlobalPosition(m_config.keyPosition);
@@ -296,6 +323,13 @@ void OverlayController::setDrawingEnabled(bool enabled)
             setMagnifierEnabled(false);
     }
 
+    bool whiteboardCleared = false;
+    if (!enabled && m_config.annotationWhiteboard) {
+        m_config.annotationWhiteboard = false;
+        m_overlay->setWhiteboardEnabled(false);
+        whiteboardCleared = true;
+    }
+
     m_overlay->setDrawingEnabled(enabled);
     if (enabled) {
         // Keep the overlay below its own toolbar, otherwise the full-screen
@@ -309,6 +343,8 @@ void OverlayController::setDrawingEnabled(bool enabled)
     } else {
         m_toolbar->hide();
     }
+    if (whiteboardCleared)
+        refreshCompositor();
 }
 
 bool OverlayController::isDrawingEnabled() const

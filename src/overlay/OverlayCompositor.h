@@ -63,8 +63,10 @@ private:
                   const OverlayConfig &config, const QVector<KeyEntry> &keys) const;
     void drawSpotlight(QPainter &painter, const QRect &screenArea, const QRect &screenRect,
                        const OverlayConfig &config) const;
+    void drawWhiteboard(QPainter &painter, const QRect &screenArea,
+                        const OverlayConfig &config) const;
     void drawMagnifier(QPainter &painter, const QRect &screenArea, const QRect &screenRect,
-                       const QImage &screenFrame, const OverlayConfig &config) const;
+                       const QImage &composedCanvas, const OverlayConfig &config) const;
     QRect screenAreaFor(const QSize &canvas) const;
 
     mutable QMutex m_mutex;

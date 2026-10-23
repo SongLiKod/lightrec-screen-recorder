@@ -149,6 +149,9 @@ QImage OverlayCompositor::compose(const QImage &screenFrame, const QRect &screen
     if (!screenFrame.isNull())
         painter.drawImage(fitted, screenFrame);
 
+    if (config.overlaysVisible && config.annotationWhiteboard)
+        drawWhiteboard(painter, fitted, config);
+
     QRect cameraArea;
     QRect pptArea;
     if (config.layout == LayoutTemplate::Split) {
@@ -223,8 +226,10 @@ QImage OverlayCompositor::compose(const QImage &screenFrame, const QRect &screen
             drawMouse(painter, fitted, screenRect, nowMs, config, cursor, cursorVisible, ripples);
         if (config.showKeys)
             drawKeys(painter, fitted, screenRect, config, keys);
-        if (config.magnifierEnabled)
-            drawMagnifier(painter, fitted, screenRect, screenFrame, config);
+        if (config.magnifierEnabled) {
+            const QImage composed = canvas;
+            drawMagnifier(painter, fitted, screenRect, composed, config);
+        }
     }
 
     painter.end();
@@ -277,6 +282,7 @@ void OverlayCompositor::drawStroke(QPainter &painter, const AnnotationStroke &st
         painter.setFont(stroke.font);
         painter.drawText(stroke.start, stroke.text);
         break;
+    case AnnotationTool::Eraser:
     case AnnotationTool::None:
         break;
     }
@@ -456,35 +462,51 @@ void OverlayCompositor::drawSpotlight(QPainter &painter, const QRect &screenArea
     painter.restore();
 }
 
+void OverlayCompositor::drawWhiteboard(QPainter &painter, const QRect &screenArea,
+                                       const OverlayConfig &config) const
+{
+    painter.save();
+    painter.fillRect(screenArea, QColor(0xF7, 0xF8, 0xFB));
+
+    if (config.annotationGrid) {
+        painter.setPen(QPen(QColor(0xD8, 0xDE, 0xE8), 1));
+        const int step = qMax(24, screenArea.width() / 32);
+        for (int x = screenArea.left() + step; x < screenArea.right(); x += step)
+            painter.drawLine(x, screenArea.top(), x, screenArea.bottom());
+        for (int y = screenArea.top() + step; y < screenArea.bottom(); y += step)
+            painter.drawLine(screenArea.left(), y, screenArea.right(), y);
+    }
+
+    if (config.annotationGuides) {
+        QPen guide(QColor(0x9A, 0xAA, 0xBE), 1, Qt::DashLine);
+        guide.setDashPattern({ 6, 5 });
+        painter.setPen(guide);
+        for (int i = 1; i <= 2; ++i) {
+            const int x = screenArea.left() + screenArea.width() * i / 3;
+            const int y = screenArea.top() + screenArea.height() * i / 3;
+            painter.drawLine(x, screenArea.top(), x, screenArea.bottom());
+            painter.drawLine(screenArea.left(), y, screenArea.right(), y);
+        }
+        painter.setPen(QPen(QColor(0x2D, 0x8C, 0xF0, 170), 1, Qt::DashLine));
+        painter.drawLine(screenArea.center().x(), screenArea.top(),
+                         screenArea.center().x(), screenArea.bottom());
+        painter.drawLine(screenArea.left(), screenArea.center().y(),
+                         screenArea.right(), screenArea.center().y());
+    }
+    painter.restore();
+}
+
 void OverlayCompositor::drawMagnifier(QPainter &painter, const QRect &screenArea,
-                                      const QRect &screenRect, const QImage &screenFrame,
+                                      const QRect &screenRect, const QImage &composedCanvas,
                                       const OverlayConfig &config) const
 {
     if (!config.magnifierRect.isValid() || config.magnifierRect.isEmpty()
-        || screenFrame.isNull() || screenRect.width() <= 0 || screenRect.height() <= 0) {
+        || composedCanvas.isNull() || screenRect.width() <= 0 || screenRect.height() <= 0) {
         return;
     }
     const QRect source = config.magnifierRect.intersected(screenRect);
     if (source.isEmpty())
         return;
-
-    const double sx = static_cast<double>(screenFrame.width()) / screenRect.width();
-    const double sy = static_cast<double>(screenFrame.height()) / screenRect.height();
-    const QRect sourceFrame(screenFrame.rect().x()
-                                + static_cast<int>((source.x() - screenRect.x()) * sx),
-                            screenFrame.rect().y()
-                                + static_cast<int>((source.y() - screenRect.y()) * sy),
-                            static_cast<int>(source.width() * sx),
-                            static_cast<int>(source.height() * sy));
-    const QRect cropped = sourceFrame.intersected(screenFrame.rect());
-    if (cropped.isEmpty())
-        return;
-
-    const int outputWidth = qBound(200, config.magnifierWidth, screenArea.width() / 2);
-    const int outputHeight = qMax(120, outputWidth * cropped.height() / qMax(1, cropped.width()));
-    const QRect output(screenArea.right() - outputWidth - 24,
-                       screenArea.bottom() - outputHeight - 24,
-                       outputWidth, outputHeight);
 
     const QRect sourceCanvas(screenArea.x()
                                  + static_cast<int>((source.x() - screenRect.x())
@@ -500,12 +522,21 @@ void OverlayCompositor::drawMagnifier(QPainter &painter, const QRect &screenArea
                              static_cast<int>(source.height()
                                               * static_cast<double>(screenArea.height())
                                               / qMax(1, screenRect.height())));
+    const QRect cropped = sourceCanvas.intersected(composedCanvas.rect());
+    if (cropped.isEmpty())
+        return;
+
+    const int outputWidth = qBound(200, config.magnifierWidth, screenArea.width() / 2);
+    const int outputHeight = qMax(120, outputWidth * cropped.height() / qMax(1, cropped.width()));
+    const QRect output(screenArea.right() - outputWidth - 24,
+                       screenArea.bottom() - outputHeight - 24,
+                       outputWidth, outputHeight);
 
     painter.save();
     painter.setBrush(QColor(15, 20, 27, 245));
     painter.setPen(QPen(QColor(0x2D, 0x8C, 0xF0), 2));
     painter.drawRoundedRect(output.adjusted(-6, -6, 6, 6), 10, 10);
-    const QImage magnified = screenFrame.copy(cropped).convertToFormat(QImage::Format_RGB32);
+    const QImage magnified = composedCanvas.copy(cropped).convertToFormat(QImage::Format_RGB32);
     painter.setOpacity(1.0);
     painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
     painter.drawImage(output, magnified);

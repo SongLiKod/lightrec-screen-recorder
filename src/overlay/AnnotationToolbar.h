@@ -41,6 +41,9 @@ signals:
     void clearRequested();
     void hideRequested();
     void closeRequested();
+    void whiteboardToggled(bool enabled);
+    void gridToggled(bool enabled);
+    void guidesToggled(bool enabled);
 
 protected:
     void paintEvent(QPaintEvent *event) override;
@@ -55,6 +58,9 @@ private:
 
     QButtonGroup *m_toolGroup = nullptr;
     QToolButton *m_colorButton = nullptr;
+    QToolButton *m_whiteboardButton = nullptr;
+    QToolButton *m_gridButton = nullptr;
+    QToolButton *m_guidesButton = nullptr;
     QSpinBox *m_widthSpin = nullptr;
     QHash<QToolButton *, QColor> m_paletteButtons;
     AnnotationTool m_tool = AnnotationTool::Pen;

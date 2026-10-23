@@ -64,7 +64,8 @@ AnnotationToolbar::AnnotationToolbar(QWidget *parent)
         { AnnotationTool::Arrow, "↗", "箭头（快捷键 3 / A）" },
         { AnnotationTool::Rect, "□", "矩形（快捷键 4 / R）" },
         { AnnotationTool::Ellipse, "○", "圆形（快捷键 5 / O）" },
-        { AnnotationTool::Text, "T", "文字（快捷键 6 / T）" }
+        { AnnotationTool::Text, "T", "文字（快捷键 6 / T）" },
+        { AnnotationTool::Eraser, "橡皮", "橡皮擦（快捷键 7 / E）" }
     };
 
     for (const auto &entry : tools) {
@@ -84,7 +85,8 @@ AnnotationToolbar::AnnotationToolbar(QWidget *parent)
         { Qt::Key_A, AnnotationTool::Arrow },
         { Qt::Key_R, AnnotationTool::Rect },
         { Qt::Key_O, AnnotationTool::Ellipse },
-        { Qt::Key_T, AnnotationTool::Text }
+        { Qt::Key_T, AnnotationTool::Text },
+        { Qt::Key_E, AnnotationTool::Eraser }
     };
     for (const auto &entry : toolShortcuts) {
         auto *shortcut = new QShortcut(QKeySequence(entry.first), this);
@@ -152,6 +154,40 @@ AnnotationToolbar::AnnotationToolbar(QWidget *parent)
     });
     layout->addWidget(m_widthSpin);
 
+    m_whiteboardButton = new QToolButton(this);
+    m_whiteboardButton->setText(QStringLiteral("白板"));
+    m_whiteboardButton->setToolTip(QStringLiteral("切换白板背景（隐藏屏幕内容）"));
+    m_whiteboardButton->setCheckable(true);
+    m_whiteboardButton->setAutoRaise(true);
+    m_whiteboardButton->setMinimumSize(58, 38);
+    layout->addWidget(m_whiteboardButton);
+
+    m_gridButton = new QToolButton(this);
+    m_gridButton->setText(QStringLiteral("网格"));
+    m_gridButton->setToolTip(QStringLiteral("白板背景显示网格"));
+    m_gridButton->setCheckable(true);
+    m_gridButton->setAutoRaise(true);
+    m_gridButton->setMinimumSize(58, 38);
+    m_gridButton->setEnabled(false);
+    layout->addWidget(m_gridButton);
+
+    m_guidesButton = new QToolButton(this);
+    m_guidesButton->setText(QStringLiteral("参考线"));
+    m_guidesButton->setToolTip(QStringLiteral("白板背景显示三分参考线"));
+    m_guidesButton->setCheckable(true);
+    m_guidesButton->setAutoRaise(true);
+    m_guidesButton->setMinimumSize(68, 38);
+    m_guidesButton->setEnabled(false);
+    layout->addWidget(m_guidesButton);
+
+    connect(m_whiteboardButton, &QToolButton::toggled, this, [this](bool enabled) {
+        m_gridButton->setEnabled(enabled);
+        m_guidesButton->setEnabled(enabled);
+        emit whiteboardToggled(enabled);
+    });
+    connect(m_gridButton, &QToolButton::toggled, this, &AnnotationToolbar::gridToggled);
+    connect(m_guidesButton, &QToolButton::toggled, this, &AnnotationToolbar::guidesToggled);
+
     auto *undoButton = new QToolButton(this);
     undoButton->setText(QStringLiteral("撤销"));
     undoButton->setToolTip(QStringLiteral("撤销上一笔（Backspace / Ctrl+Z）"));
@@ -185,7 +221,7 @@ AnnotationToolbar::AnnotationToolbar(QWidget *parent)
     layout->addWidget(closeButton);
 
     auto *shortcutHint = new QLabel(
-        QStringLiteral("工具 1–6  ·  颜色 Z X C V B N  ·  粗细 [ ] / - =  ·  "
+        QStringLiteral("工具 1–7（含橡皮 E）  ·  颜色 Z X C V B N  ·  粗细 [ ] / - =  ·  "
                        "撤销 Backspace / Ctrl+Z  ·  清空 Delete  ·  隐藏 H  ·  退出 Esc"),
         this);
     shortcutHint->setWordWrap(true);
@@ -268,8 +304,24 @@ void AnnotationToolbar::syncFromConfig(const OverlayConfig &config)
     m_penColor = config.penColor;
     updateColorButton();
     updatePaletteSelection();
-    const QSignalBlocker blocker(m_widthSpin);
-    m_widthSpin->setValue(qBound(1, config.penWidth, 24));
+    {
+        const QSignalBlocker blocker(m_widthSpin);
+        m_widthSpin->setValue(qBound(1, config.penWidth, 24));
+    }
+    {
+        const QSignalBlocker blocker(m_whiteboardButton);
+        m_whiteboardButton->setChecked(config.annotationWhiteboard);
+        m_gridButton->setEnabled(config.annotationWhiteboard);
+        m_guidesButton->setEnabled(config.annotationWhiteboard);
+    }
+    {
+        const QSignalBlocker blocker(m_gridButton);
+        m_gridButton->setChecked(config.annotationGrid);
+    }
+    {
+        const QSignalBlocker blocker(m_guidesButton);
+        m_guidesButton->setChecked(config.annotationGuides);
+    }
 }
 
 void AnnotationToolbar::updatePaletteSelection()

@@ -49,7 +49,8 @@ enum class AnnotationTool {
     Arrow = 3,
     Rect = 4,
     Ellipse = 5,
-    Text = 6
+    Text = 6,
+    Eraser = 7
 };
 
 struct MonitorInfo {
@@ -124,6 +125,11 @@ struct OverlayConfig {
     int pptHeight = 360;
 
     bool overlaysVisible = true;
+
+    // Annotation canvas background.
+    bool annotationWhiteboard = false;
+    bool annotationGrid = false;
+    bool annotationGuides = false;
 
     // Local highlight / spotlight and magnifier (EV-style quick tools).
     bool spotlightEnabled = false;

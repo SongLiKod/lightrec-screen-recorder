@@ -32,6 +32,7 @@ public:
     explicit AnnotationModel(QObject *parent = nullptr);
 
     void addStroke(const AnnotationStroke &stroke);
+    int eraseAt(const QPointF &point, qreal radius);
     void undo();
     void clear();
     QVector<AnnotationStroke> strokes() const;
