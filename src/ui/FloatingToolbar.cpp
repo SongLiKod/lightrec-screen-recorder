@@ -328,6 +328,17 @@ void FloatingToolbar::setElapsed(qint64 elapsedMs)
     m_elapsedLabel->setText(formatDuration(elapsedMs));
 }
 
+void FloatingToolbar::setCaptureInVideo(bool include)
+{
+    m_captureInVideo = include;
+    if (!isVisible())
+        return;
+    if (include)
+        WindowUtils::allowCapture(winId());
+    else
+        WindowUtils::excludeFromCapture(winId());
+}
+
 void FloatingToolbar::setDrawEnabled(bool enabled)
 {
     const QSignalBlocker blocker(m_drawButton);
@@ -408,7 +419,7 @@ void FloatingToolbar::showToolbar()
     move(position);
     show();
     raise();
-    WindowUtils::excludeFromCapture(winId());
+    setCaptureInVideo(ConfigStore::instance().captureFloatingToolbar());
     WindowUtils::setTopmost(winId(), true);
     emit geometryChanged(geometry());
 }

@@ -4,6 +4,8 @@
 #include "core/WindowUtils.h"
 
 #include <QApplication>
+#include <QFont>
+#include <QFontMetrics>
 #include <QGuiApplication>
 #include <QMouseEvent>
 #include <QPainter>
@@ -11,6 +13,27 @@
 #include <QTimer>
 
 namespace lightrec {
+
+namespace {
+
+QString formatElapsed(qint64 seconds)
+{
+    seconds = qMax<qint64>(0, seconds);
+    const qint64 hours = seconds / 3600;
+    const qint64 minutes = (seconds / 60) % 60;
+    const qint64 remaining = seconds % 60;
+    if (hours > 0) {
+        return QStringLiteral("%1:%2:%3")
+            .arg(hours)
+            .arg(minutes, 2, 10, QLatin1Char('0'))
+            .arg(remaining, 2, 10, QLatin1Char('0'));
+    }
+    return QStringLiteral("%1:%2")
+        .arg(minutes, 2, 10, QLatin1Char('0'))
+        .arg(remaining, 2, 10, QLatin1Char('0'));
+}
+
+} // namespace
 
 FloatingRecordDot::FloatingRecordDot(QWidget *parent)
     : QWidget(parent)
@@ -36,10 +59,23 @@ FloatingRecordDot::FloatingRecordDot(QWidget *parent)
 void FloatingRecordDot::setState(RecordState state)
 {
     m_state = state;
+    if (state == RecordState::Idle || state == RecordState::Starting)
+        m_elapsedSeconds = 0;
     if (state == RecordState::Recording || state == RecordState::Paused)
         setToolTip(QStringLiteral("正在录制 · 点击停止"));
     else
         setToolTip(QStringLiteral("点击开始录制；拖动可移动；双击打开主界面"));
+    update();
+}
+
+void FloatingRecordDot::setElapsed(qint64 elapsedMs)
+{
+    const qint64 seconds = qMax<qint64>(0, elapsedMs / 1000);
+    if (seconds == m_elapsedSeconds)
+        return;
+    m_elapsedSeconds = seconds;
+    if (m_state == RecordState::Recording || m_state == RecordState::Paused)
+        setToolTip(QStringLiteral("正在录制 %1 · 点击停止").arg(formatElapsed(m_elapsedSeconds)));
     update();
 }
 
@@ -110,23 +146,25 @@ void FloatingRecordDot::paintEvent(QPaintEvent *event)
     painter.setPen(QPen(QColor(255, 255, 255, 210), 2));
     painter.drawEllipse(circle);
 
-    painter.setPen(Qt::NoPen);
-    painter.setBrush(Qt::white);
-    if (m_state == RecordState::Recording) {
-        const QRectF square(circle.center().x() - circle.width() * 0.16,
-                            circle.center().y() - circle.height() * 0.16,
-                            circle.width() * 0.32, circle.height() * 0.32);
-        painter.drawRoundedRect(square, 3, 3);
-    } else if (m_state == RecordState::Paused) {
-        const double barWidth = circle.width() * 0.10;
-        const double barHeight = circle.height() * 0.30;
-        painter.drawRoundedRect(QRectF(circle.center().x() - barWidth * 2.2,
-                                       circle.center().y() - barHeight / 2,
-                                       barWidth, barHeight), 2, 2);
-        painter.drawRoundedRect(QRectF(circle.center().x() + barWidth * 1.2,
-                                       circle.center().y() - barHeight / 2,
-                                       barWidth, barHeight), 2, 2);
+    if (m_state == RecordState::Recording || m_state == RecordState::Paused) {
+        const QString elapsed = formatElapsed(m_elapsedSeconds);
+        QFont textFont = font();
+        textFont.setBold(true);
+        int pixelSize = qMax(8, qRound(circle.height() * 0.26));
+        textFont.setPixelSize(pixelSize);
+        QFontMetrics metrics(textFont);
+        const int maxWidth = qRound(circle.width() * 0.82);
+        while (pixelSize > 8 && metrics.horizontalAdvance(elapsed) > maxWidth) {
+            --pixelSize;
+            textFont.setPixelSize(pixelSize);
+            metrics = QFontMetrics(textFont);
+        }
+        painter.setFont(textFont);
+        painter.setPen(QColor(255, 255, 255, 245));
+        painter.drawText(circle, Qt::AlignCenter, elapsed);
     } else {
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(Qt::white);
         painter.drawEllipse(circle.center(), circle.width() * 0.18, circle.height() * 0.18);
     }
 }

@@ -28,6 +28,7 @@ public:
     void showMessage(const QString &message);
     void setHint(const QString &hint);
     void setElapsed(qint64 elapsedMs);
+    void setCaptureInVideo(bool include);
     void setDrawEnabled(bool enabled);
     void setOverlaysVisible(bool visible);
     void setCameraEnabled(bool enabled);
@@ -82,6 +83,7 @@ private:
     int m_style = 2;      // 0 dark, 1 light, 2 follow theme
     int m_opacity = 92;
     bool m_darkAppearance = true;
+    bool m_captureInVideo = false;
 
     void applyAppearance();
 };

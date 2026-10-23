@@ -416,6 +416,7 @@ void MainWindow::wireSignals()
     connect(m_controller, &RecordingController::stateChanged, this, &MainWindow::handleStateChanged);
     connect(m_controller, &RecordingController::elapsedChanged, m_toolbar, &FloatingToolbar::setElapsed);
     connect(m_controller, &RecordingController::elapsedChanged, m_recordPage, &RecordPage::setElapsed);
+    connect(m_controller, &RecordingController::elapsedChanged, m_recordDot, &FloatingRecordDot::setElapsed);
     connect(m_controller, &RecordingController::encoderSelected, this, [this](const QString &name) {
         m_recordPage->setEncoderText(QStringLiteral("编码器：%1").arg(name));
     });
@@ -493,6 +494,9 @@ void MainWindow::wireSignals()
         } else if (m_controller->isRecording()) {
             m_toolbar->showToolbar();
         }
+    });
+    connect(m_settingsPage, &SettingsPage::captureFloatingToolbarChanged, this, [this](bool include) {
+        m_toolbar->setCaptureInVideo(include);
     });
     connect(m_settingsPage, &SettingsPage::floatingDotChanged, this, [this](bool enabled) {
         if (enabled)
@@ -819,6 +823,7 @@ void MainWindow::beginRecording(const RecordOptions &options)
     m_toolbar->setMagnifierEnabled(false);
     m_toolbar->setRegionMode(options.video.mode == CaptureMode::Region);
     m_toolbar->setElapsed(0);
+    m_recordDot->setElapsed(0);
     m_recordPage->setStatusText(QStringLiteral("正在录制"));
     m_filesPage->refresh();
 

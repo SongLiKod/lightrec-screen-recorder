@@ -39,6 +39,7 @@ signals:    void settingsSaved();
     void toolbarStyleChanged(int style);
     void toolbarOpacityChanged(int opacity);
     void showFloatingToolbarChanged(bool visible);
+    void captureFloatingToolbarChanged(bool include);
     void floatingDotChanged(bool enabled);
     void floatingDotSizeChanged(int size);
 
@@ -56,6 +57,7 @@ private:
     QSlider *m_toolbarOpacity = nullptr;
     QLabel *m_toolbarOpacityLabel = nullptr;
     QCheckBox *m_showFloatingToolbar = nullptr;
+    QCheckBox *m_captureFloatingToolbar = nullptr;
     QCheckBox *m_floatingDot = nullptr;
     QSpinBox *m_floatingDotSize = nullptr;
     QLineEdit *m_outputDir = nullptr;

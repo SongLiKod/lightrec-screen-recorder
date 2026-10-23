@@ -20,6 +20,7 @@ public:
     explicit FloatingRecordDot(QWidget *parent = nullptr);
 
     void setState(RecordState state);
+    void setElapsed(qint64 elapsedMs);
     void setDotSize(int size);
     void setOpacity(int opacity);
     void showAtSavedPosition();
@@ -37,6 +38,7 @@ protected:
 
 private:
     RecordState m_state = RecordState::Idle;
+    qint64 m_elapsedSeconds = 0;
     int m_dotSize = 64;
     int m_opacity = 90;
     bool m_dragging = false;

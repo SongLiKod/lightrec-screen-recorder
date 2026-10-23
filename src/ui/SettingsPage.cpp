@@ -117,6 +117,11 @@ void SettingsPage::buildUi()
     m_showFloatingToolbar->setChecked(true);
     appearanceForm->addRow(QString(), m_showFloatingToolbar);
 
+    m_captureFloatingToolbar = new QCheckBox(QStringLiteral("录制视频中包含悬浮工具栏"), appearance);
+    m_captureFloatingToolbar->setToolTip(
+        QStringLiteral("开启后，屏幕/区域录制会包含悬浮工具栏；窗口录制始终只捕获目标窗口内容。"));
+    appearanceForm->addRow(QString(), m_captureFloatingToolbar);
+
     m_floatingDot = new QCheckBox(QStringLiteral("显示悬浮录制圆点（默认开启）"), appearance);
     m_floatingDot->setChecked(true);
     appearanceForm->addRow(QString(), m_floatingDot);
@@ -156,6 +161,10 @@ void SettingsPage::buildUi()
     connect(m_showFloatingToolbar, &QCheckBox::toggled, this, [this](bool checked) {
         ConfigStore::instance().setShowFloatingToolbar(checked);
         emit showFloatingToolbarChanged(checked);
+    });
+    connect(m_captureFloatingToolbar, &QCheckBox::toggled, this, [this](bool checked) {
+        ConfigStore::instance().setCaptureFloatingToolbar(checked);
+        emit captureFloatingToolbarChanged(checked);
     });
     connect(m_floatingDot, &QCheckBox::toggled, this, [this](bool checked) {
         ConfigStore::instance().setFloatingDotEnabled(checked);
@@ -481,6 +490,10 @@ void SettingsPage::loadFromConfig()
         m_showFloatingToolbar->setChecked(store.showFloatingToolbar());
     }
     {
+        const QSignalBlocker blocker(m_captureFloatingToolbar);
+        m_captureFloatingToolbar->setChecked(store.captureFloatingToolbar());
+    }
+    {
         const QSignalBlocker blocker(m_floatingDot);
         m_floatingDot->setChecked(store.floatingDotEnabled());
     }
@@ -599,6 +612,7 @@ void SettingsPage::save()
     store.setToolbarStyle(m_toolbarStyleCombo->currentData().toInt());
     store.setToolbarOpacity(m_toolbarOpacity->value());
     store.setShowFloatingToolbar(m_showFloatingToolbar->isChecked());
+    store.setCaptureFloatingToolbar(m_captureFloatingToolbar->isChecked());
     store.setFloatingDotEnabled(m_floatingDot->isChecked());
     store.setFloatingDotSize(m_floatingDotSize->value());
     store.setOutputDir(m_outputDir->text().trimmed());

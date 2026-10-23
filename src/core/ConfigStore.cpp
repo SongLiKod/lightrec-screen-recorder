@@ -104,6 +104,17 @@ void ConfigStore::setShowFloatingToolbar(bool value)
     emit settingsChanged();
 }
 
+bool ConfigStore::captureFloatingToolbar() const
+{
+    return QSettings().value(QStringLiteral("ui/captureFloatingToolbar"), false).toBool();
+}
+
+void ConfigStore::setCaptureFloatingToolbar(bool value)
+{
+    QSettings().setValue(QStringLiteral("ui/captureFloatingToolbar"), value);
+    emit settingsChanged();
+}
+
 int ConfigStore::toolbarStyle() const
 {
     return qBound(0, QSettings().value(QStringLiteral("ui/toolbarStyle"), 2).toInt(), 2);

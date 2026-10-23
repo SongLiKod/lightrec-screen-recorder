@@ -29,6 +29,8 @@ public:
     void setToolbarScale(int percent);
     bool showFloatingToolbar() const;
     void setShowFloatingToolbar(bool value);
+    bool captureFloatingToolbar() const;
+    void setCaptureFloatingToolbar(bool value);
     int toolbarStyle() const;
     void setToolbarStyle(int style);
     int toolbarOpacity() const;

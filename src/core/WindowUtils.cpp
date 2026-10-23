@@ -30,6 +30,17 @@ void WindowUtils::excludeFromCapture(WId windowId)
 #endif
 }
 
+void WindowUtils::allowCapture(WId windowId)
+{
+#ifdef Q_OS_WIN
+    if (!windowId || qEnvironmentVariableIsSet("LIGHTREC_DEBUG_CAPTURE"))
+        return;
+    SetWindowDisplayAffinity(reinterpret_cast<HWND>(windowId), WDA_NONE);
+#else
+    Q_UNUSED(windowId)
+#endif
+}
+
 void WindowUtils::setClickThrough(WId windowId, bool enabled)
 {
 #ifdef Q_OS_WIN

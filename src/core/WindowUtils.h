@@ -12,6 +12,7 @@ class WindowUtils
 {
 public:
     static void excludeFromCapture(WId windowId);
+    static void allowCapture(WId windowId);
     static void setClickThrough(WId windowId, bool enabled);
     static void setTopmost(WId windowId, bool enabled);
     static void setNoActivate(WId windowId);
