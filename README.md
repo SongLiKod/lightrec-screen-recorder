@@ -65,6 +65,12 @@ tests/        无界面媒体管线自检
 - CMake 3.21+
 - Windows SDK 10.0.22621（MSVC）
 - FFmpeg **shared** SDK，包含 `libx264`/`libx265` 编码器（GPL 构建，例如 BtbN `ffmpeg-master-latest-win64-gpl-shared.zip`）。仓库已内置完整运行时到 `vendor/ffmpeg`（include/lib/bin），默认构建无需额外下载。
+- 仓库使用 **Git LFS** 管理 `vendor/ffmpeg/bin/avcodec-63.dll`（超过 GitHub 100 MB 单文件限制）。克隆前请安装 [Git LFS](https://git-lfs.com/)，克隆后执行：
+
+```powershell
+git lfs install
+git lfs pull
+```
 
 > FFmpeg 是必需依赖。仓库内 `vendor/ffmpeg` 已包含完整 GPL shared 运行时；若删除该目录且未指定 SDK，CMake 会直接报错。仅供 UI 开发时可显式使用 `-DLIGHTREC_WITH_FFMPEG=OFF -DLIGHTREC_ALLOW_NO_FFMPEG=ON`。
 

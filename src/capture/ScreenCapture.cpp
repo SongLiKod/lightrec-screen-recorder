@@ -1,5 +1,6 @@
 #include "capture/ScreenCapture.h"
 #include "capture/DxgiCapture.h"
+#include "capture/PrintWindowCapture.h"
 #include "core/WindowUtils.h"
 
 #ifdef LIGHTREC_HAVE_WGC
@@ -119,9 +120,22 @@ bool ScreenCapture::start(const CaptureConfig &config, QString *error)
             return true;
         }
         m_lastError = wgcError;
-        qInfo() << "WGC unavailable, falling back to DXGI:" << wgcError;
+        qInfo() << "WGC unavailable, falling back:" << wgcError;
     }
 #endif
+
+    if (config.mode == CaptureMode::Window) {
+        auto printWindow = std::make_unique<PrintWindowCapture>();
+        QString printWindowError;
+        if (printWindow->start(config, &printWindowError)) {
+            m_backend = std::move(printWindow);
+            m_running = true;
+            qInfo() << "Screen capture backend: PrintWindow (window-only)";
+            return true;
+        }
+        m_lastError = printWindowError;
+        qInfo() << "PrintWindow unavailable, falling back to DXGI:" << printWindowError;
+    }
 
     auto dxgi = std::make_unique<DxgiCapture>();
     QString dxgiError;

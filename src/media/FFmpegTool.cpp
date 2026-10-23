@@ -347,7 +347,7 @@ QStringList FFmpegTool::watermarkArguments(const QString &input, const QString &
         QString drawText = QStringLiteral("drawtext=textfile='%1'").arg(filterPath(textFilePath));
         const QString font = fontFile();
         if (!font.isEmpty())
-            drawText += QStringLiteral(":fontfile='%1'").arg(font);
+            drawText += QStringLiteral(":fontfile='%1'").arg(filterPath(font));
         drawText += QStringLiteral(":fontcolor=0x%1@%2:fontsize=%3:x=%4:y=%5")
                         .arg(config.color.name(QColor::HexRgb).mid(1), alpha)
                         .arg(config.fontSize)

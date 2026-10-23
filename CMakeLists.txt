@@ -87,6 +87,7 @@ set(LIGHTREC_SOURCES
 
     src/capture/ScreenCapture.cpp
     src/capture/DxgiCapture.cpp
+    src/capture/PrintWindowCapture.cpp
 
     src/audio/WasapiCapture.cpp
     src/audio/AudioProcessor.cpp
@@ -147,6 +148,7 @@ set(LIGHTREC_HEADERS
 
     src/capture/ScreenCapture.h
     src/capture/DxgiCapture.h
+    src/capture/PrintWindowCapture.h
     src/capture/WgcCapture.h
 
     src/audio/WasapiCapture.h
