@@ -76,12 +76,20 @@ jobs:
             'LightRecPreviewDialogTest',
             'LightRecUpdateManagerTest'
           )
+          $failed = @()
           foreach ($test in $tests) {
-            Write-Host "Running $test..."
+            Write-Host "::group::$test"
             & ".\build\$test.exe"
-            if ($LASTEXITCODE -ne 0) {
-              throw "$test failed with exit code $LASTEXITCODE"
+            $code = $LASTEXITCODE
+            Write-Host "$test exit=$code"
+            if ($code -ne 0) {
+              Write-Output "::error title=$test::$test failed with exit code $code"
+              $failed += "$test=$code"
             }
+            Write-Host "::endgroup::"
+          }
+          if ($failed.Count -gt 0) {
+            throw ("Tests failed: " + ($failed -join ', '))
           }
 
   windows:

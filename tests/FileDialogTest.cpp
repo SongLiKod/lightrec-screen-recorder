@@ -16,6 +16,7 @@ int main(int argc, char *argv[])
 #ifdef Q_OS_WIN
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 #endif
+    QCoreApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
     QApplication app(argc, argv);
 
     bool dialogSeen = false;
