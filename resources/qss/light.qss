@@ -1,4 +1,4 @@
-/* LightRec light theme - flat EV-inspired blue UI */
+/* LightRec light theme - flat blue UI */
 QWidget {
     color: #25303f;
     font-family: "Microsoft YaHei UI", "Segoe UI";

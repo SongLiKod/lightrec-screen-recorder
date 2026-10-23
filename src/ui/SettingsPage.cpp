@@ -482,7 +482,7 @@ void SettingsPage::buildUi()
 
     QLabel *notice = ui::mutedLabel(
         QStringLiteral("本软件为个人兴趣开发产物，仅供个人学习、娱乐、非商业性质免费使用\n"
-                       "作者保留全部知识产权，未经书面许可不得二次开发、修改、复刻、衍生创作或用于任何商业营利用途\n"
+                       "作者保留全部知识产权，未经书面许可不得二次开发、修改、复制发行、衍生创作或用于任何商业营利用途\n"
                        "使用者需遵守当地法律法规与网络使用规范，违规使用的后果自行承担"),
         about);
     notice->setWordWrap(true);

@@ -5,7 +5,7 @@
 主技术栈：C++17 + Qt6 (Qt Widgets) + FFmpeg
 备选方案：C# .NET9 + WPF + HandyControl + MicaWPF
 排除方案说明：Flutter、Electron、WinForms
-> 选型理由：EV原生为C++ Qt，该技术栈对录屏、全局Overlay、FFmpeg集成生态成熟，复刻EV交互阻力最小。
+> 选型理由：C++/Qt 技术栈在录屏、全局 Overlay、FFmpeg 集成方向较成熟，能够降低复杂桌面交互的实现成本。
 
 ## 目录
 1. 选型论证 & 各方案对比
@@ -28,10 +28,10 @@
 ---
 
 ## 1. 选型论证 & 方案对比
-| 方案 | UI还原EV能力 | 全局Overlay画板难度 | Win11 Fluent/Mica | 录屏生态成熟度 | 推荐等级 |
+| 方案 | UI 表现力 | 全局Overlay画板难度 | Win11 Fluent/Mica | 录屏生态成熟度 | 推荐等级 |
 | ---- | ---- | ---- | ---- | ---- | ---- |
-| C++ Qt6 Widgets | ⭐⭐⭐⭐⭐（EV同源，完美复刻EV界面） | 中等，大量开源参考 | 仅可模拟，无原生Mica | ⭐⭐⭐⭐⭐国内录屏主流 | ✅【主方案】 |
-| C# WPF + HandyControl | ⭐⭐⭐⭐，可复刻EV交互布局 | 低，Direct2D成熟 | ✅支持MicaWPF云母材质 | ⭐⭐⭐⭐ | ⭐备选方案 |
+| C++ Qt6 Widgets | ⭐⭐⭐⭐⭐（成熟控件体系，适合复杂桌面 UI） | 中等，大量开源参考 | 仅可模拟，无原生Mica | ⭐⭐⭐⭐⭐国内录屏主流 | ✅【主方案】 |
+| C# WPF + HandyControl | ⭐⭐⭐⭐（适合实现复杂交互布局） | 低，Direct2D成熟 | ✅支持MicaWPF云母材质 | ⭐⭐⭐⭐ | ⭐备选方案 |
 | C# WinUI3 | ⭐⭐⭐ | 高，全局悬浮窗实现复杂 | ✅原生最强Fluent | ⭐⭐ | 不推荐 |
 | Dart Flutter | ⭐⭐⭐⭐⭐UI绘制自由 | ❌极高，必须额外写C++原生插件做全局悬浮、抓屏 | ❌只能模拟材质 | ⭐冷门，缺少成熟轮子 | ❌不推荐 |
 | Electron | ⭐⭐⭐⭐ | 全局Overlay很难做，包体积巨大 | ❌web质感违和 | ⭐⭐⭐⭐ | ❌不推荐 |
@@ -40,10 +40,10 @@
 1. Flutter内置Overlay仅支持App窗口内部叠加，**无法跨窗口全局置顶画板、悬浮录制条**；想要全局Overlay必须单独开发一套C++ Win32原生窗口，两套渲染引擎，工作量翻倍，调试困难
 2. Windows Graphics Capture（WGC）没有成熟Flutter插件，屏幕捕获、音频采集插件需要从零开发
 3. 录屏对音视频时序、低延迟、硬件编码要求高，Dart层转发音视频流容易引入延迟丢帧
-4. 打包体积偏大，达不到EV轻量化的体验
+4. 打包体积偏大，相对原生轻量工具体积更高
 5. 桌面录屏开源案例极少，踩坑无参考
 
-> 本项目主路线：C++ Qt6 Widgets，和EV保持一致底层路线，最大限度复用同类项目成熟代码。
+> 本项目主路线：C++ Qt6 Widgets，采用成熟的桌面应用技术路线，降低底层实现风险。
 
 ---
 
@@ -73,9 +73,9 @@
 
 ## 3. 模块详细设计
 ### 3.1 UI层 Qt Widgets
-1. 主窗口布局：对齐EV布局，左侧功能导航，右侧主操作面板
+1. 主窗口布局：左侧功能导航，右侧主操作面板
 2. 悬浮录制条：独立无边框置顶Qt窗口，支持拖动，鼠标穿透控制
-3. 主题实现：自定义QSS样式表，三套样式（EV默认蓝主题浅色、深色、跟随系统）
+3. 主题实现：自定义 QSS 样式表，三套样式（蓝色浅色、深色、跟随系统）
     - 跟随系统：调用Win32 API读取Windows注册表系统主题配置，监听主题变更消息，自动切换QSS
 4. 控件：QPushButton、QComboBox、QTableWidget（文件列表）、QDialog弹窗；自定义绘制颜色板、画板工具栏
 5. 全局热键：Qt GlobalHotkey第三方组件 / Win32 RegisterHotKey
@@ -91,7 +91,7 @@ WASAPI 独占/共享模式采集
 - 音频预处理：降噪、增益（基于FFmpeg滤镜或者自定义音频处理）
 - 输出两路PCM音频，独立音轨封装进MP4
 
-### 3.4 Overlay顶层绘制模块（核心难点，对标EV画板）
+### 3.4 Overlay顶层绘制模块（核心难点，实时标注画板）
 > 独立顶层窗口，覆盖全部桌面窗口，录制时把绘制内容混合到视频帧
 方案：Direct2D 绘制
 绘制内容：
@@ -138,7 +138,7 @@ Qt HttpServer搭建轻量web服务
 ## 4. 主题与DPI适配
 1. DPI：Qt开启高DPI感知 `Qt::AA_EnableHighDpiScaling`，`Qt::AA_UseHighDpiPixmaps`
 2. 主题切换逻辑：
-   - 浅色：EV原版蓝色扁平风格
+   - 浅色：蓝色扁平风格
    - 深色：深色背景，保留品牌蓝色强调色
    - 跟随系统：Win32读取注册表 `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize` AppsUseLighting值，并且监听WM_SETTINGCHANGE消息，动态切换QSS，无需重启
 > 限制：Qt Widgets原生不支持Mica云母材质，只能做样式模拟；想要原生Mica效果切换为WPF备选方案
@@ -165,14 +165,14 @@ windeployqt 收集Qt依赖，再打包ffmpeg dll；使用Enigma Virtual Box打�
 ---
 
 ## 6. 备选方案：C# .NET9 + WPF + HandyControl + MicaWPF
-适合场景：想要EV交互 + Win11原生Mica云母、Fluent质感，不想写大量C++
+适合场景：需要丰富桌面交互 + Win11 原生 Mica 云母、Fluent 质感，且希望减少 C++ 开发量
 - UI：HandyControl控件库，自带深浅色+跟随系统，MicaWPF实现云母标题栏
 - 屏幕捕获：Windows Graphics Capture C#封装库
 - 音频：NAudio WASAPI
 - Overlay：WPF顶层窗口 + Direct2D绘制画板特效
 - FFmpeg：FFmpeg.AutoGen
 - 局域网直播：Kestrel web服务
-优点：C#开发速度更快，生态友好；缺点：不是EV同源技术栈
+优点：C# 开发速度更快，生态友好；缺点：与 Qt 技术栈不同
 
 ---
 

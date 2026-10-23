@@ -131,7 +131,7 @@ struct OverlayConfig {
     bool annotationGrid = false;
     bool annotationGuides = false;
 
-    // Local highlight / spotlight and magnifier (EV-style quick tools).
+    // Local highlight / spotlight and magnifier (quick annotation tools).
     bool spotlightEnabled = false;
     QRect spotlightRect;
     int spotlightDim = 140;

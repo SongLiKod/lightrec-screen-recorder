@@ -10,7 +10,7 @@ class QTimer;
 namespace lightrec {
 
 /**
- * EV-style floating record dot.  Always-on-top, draggable, click to start or
+ * Circular floating record dot.  Always-on-top, draggable, click to start or
  * stop recording, double-click to bring the main window back.
  */
 class FloatingRecordDot : public QWidget
