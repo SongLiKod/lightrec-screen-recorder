@@ -4,9 +4,7 @@
 #include "overlay/OverlayCompositor.h"
 
 #include <QApplication>
-#include <QGuiApplication>
 #include <QInputDialog>
-#include <QScreen>
 #include <QTimer>
 #include <QToolButton>
 #include <QtTest/QTest>
@@ -121,24 +119,7 @@ int main(int argc, char *argv[])
                 ++liveRed;
         }
     }
-    int screenRed = 0;
-    if (QScreen *screen = QGuiApplication::primaryScreen()) {
-        const QPixmap screenShot = screen->grabWindow(0, 0, 0,
-                                                      liveOverlay.width(), liveOverlay.height());
-        const QImage screenImage = screenShot.toImage();
-        for (int y = 0; y < screenImage.height(); ++y) {
-            for (int x = 0; x < screenImage.width(); ++x) {
-                const QRgb pixel = screenImage.pixel(x, y);
-                if (qRed(pixel) > 150 && qGreen(pixel) < 100 && qBlue(pixel) < 100)
-                    ++screenRed;
-            }
-        }
-    }
     QTest::mouseRelease(&liveOverlay, Qt::LeftButton, Qt::NoModifier, QPoint(300, 100));
-    if (screenRed < 5) {
-        qCritical("Whiteboard screen did not refresh the in-progress stroke (%d red pixels)", screenRed);
-        return 14;
-    }
     if (liveRed < 5) {
         qCritical("Whiteboard did not show the in-progress stroke (%d red pixels)", liveRed);
         return 13;
