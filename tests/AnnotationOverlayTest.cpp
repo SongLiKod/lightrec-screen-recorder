@@ -4,7 +4,9 @@
 #include "overlay/OverlayCompositor.h"
 
 #include <QApplication>
+#include <QGuiApplication>
 #include <QInputDialog>
+#include <QScreen>
 #include <QTimer>
 #include <QToolButton>
 #include <QtTest/QTest>
@@ -94,6 +96,55 @@ int main(int argc, char *argv[])
         return 8;
     }
 
+    AnnotationModel liveModel;
+    AnnotationOverlay liveOverlay(&liveModel);
+    liveOverlay.setGeometry(0, 0, 800, 600);
+    liveOverlay.setDrawingEnabled(true);
+    liveOverlay.setTool(AnnotationTool::Pen);
+    liveOverlay.setPenColor(Qt::red);
+    liveOverlay.setPenWidth(8);
+    liveOverlay.setWhiteboardEnabled(true);
+    liveOverlay.show();
+    QTest::qWait(50);
+    QTest::mousePress(&liveOverlay, Qt::LeftButton, Qt::NoModifier, QPoint(100, 100));
+    QTest::mouseMove(&liveOverlay, QPoint(200, 200), 10);
+    QTest::mouseMove(&liveOverlay, QPoint(300, 100), 10);
+    QTest::qWait(100);
+    QImage liveImage(liveOverlay.size(), QImage::Format_ARGB32_Premultiplied);
+    liveImage.fill(Qt::transparent);
+    liveOverlay.render(&liveImage);
+    int liveRed = 0;
+    for (int y = 0; y < liveImage.height(); ++y) {
+        for (int x = 0; x < liveImage.width(); ++x) {
+            const QRgb pixel = liveImage.pixel(x, y);
+            if (qRed(pixel) > 150 && qGreen(pixel) < 100 && qBlue(pixel) < 100)
+                ++liveRed;
+        }
+    }
+    int screenRed = 0;
+    if (QScreen *screen = QGuiApplication::primaryScreen()) {
+        const QPixmap screenShot = screen->grabWindow(0, 0, 0,
+                                                      liveOverlay.width(), liveOverlay.height());
+        const QImage screenImage = screenShot.toImage();
+        for (int y = 0; y < screenImage.height(); ++y) {
+            for (int x = 0; x < screenImage.width(); ++x) {
+                const QRgb pixel = screenImage.pixel(x, y);
+                if (qRed(pixel) > 150 && qGreen(pixel) < 100 && qBlue(pixel) < 100)
+                    ++screenRed;
+            }
+        }
+    }
+    QTest::mouseRelease(&liveOverlay, Qt::LeftButton, Qt::NoModifier, QPoint(300, 100));
+    if (screenRed < 5) {
+        qCritical("Whiteboard screen did not refresh the in-progress stroke (%d red pixels)", screenRed);
+        return 14;
+    }
+    if (liveRed < 5) {
+        qCritical("Whiteboard did not show the in-progress stroke (%d red pixels)", liveRed);
+        return 13;
+    }
+    liveOverlay.hide();
+
     AnnotationStroke eraserTarget;
     eraserTarget.tool = AnnotationTool::Pen;
     eraserTarget.color = Qt::red;
@@ -152,6 +203,39 @@ int main(int argc, char *argv[])
         return 12;
     }
     overlay.setMagnifierEnabled(false);
+
+    OverlayCompositor liveCompositor;
+    liveCompositor.setOutputSize(QSize(800, 600));
+    OverlayConfig liveConfig;
+    liveConfig.overlaysVisible = true;
+    liveConfig.showMouseHighlight = false;
+    liveConfig.showKeys = false;
+    liveCompositor.setConfig(liveConfig);
+    AnnotationStroke inProgress;
+    inProgress.tool = AnnotationTool::Pen;
+    inProgress.color = QColor(255, 0, 0);
+    inProgress.width = 10;
+    inProgress.start = QPointF(100, 100);
+    inProgress.points = { QPointF(100, 100), QPointF(300, 200) };
+    inProgress.end = QPointF(300, 200);
+    liveCompositor.setLiveStroke(inProgress, true);
+    QImage blackScreen(800, 600, QImage::Format_ARGB32);
+    blackScreen.fill(Qt::black);
+    const QImage liveComposed = liveCompositor.compose(
+        blackScreen, QRect(0, 0, 800, 600), 0);
+    int liveComposedRed = 0;
+    for (int y = 0; y < liveComposed.height(); ++y) {
+        for (int x = 0; x < liveComposed.width(); ++x) {
+            const QRgb pixel = liveComposed.pixel(x, y);
+            if (qRed(pixel) > 150 && qGreen(pixel) < 100 && qBlue(pixel) < 100)
+                ++liveComposedRed;
+        }
+    }
+    if (liveComposedRed < 5) {
+        qCritical("Compositor omitted the in-progress stroke (%d red pixels)", liveComposedRed);
+        return 15;
+    }
+    liveCompositor.setLiveStroke(AnnotationStroke(), false);
 
     OverlayCompositor compositor;
     compositor.setOutputSize(QSize(800, 600));

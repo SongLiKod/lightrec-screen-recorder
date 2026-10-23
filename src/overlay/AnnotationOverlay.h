@@ -66,6 +66,8 @@ signals:
     void magnifierRectChanged(const QRect &rect);
     void spotlightExitRequested();
     void magnifierExitRequested();
+    void liveStrokeChanged(const AnnotationStroke &stroke);
+    void liveStrokeCleared();
 
 protected:
     void paintEvent(QPaintEvent *event) override;

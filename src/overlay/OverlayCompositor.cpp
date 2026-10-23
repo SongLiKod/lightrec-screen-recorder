@@ -49,6 +49,13 @@ void OverlayCompositor::setStrokes(const QVector<AnnotationStroke> &strokes)
     m_strokes = strokes;
 }
 
+void OverlayCompositor::setLiveStroke(const AnnotationStroke &stroke, bool visible)
+{
+    QMutexLocker locker(&m_mutex);
+    m_liveStroke = stroke;
+    m_liveStrokeVisible = visible;
+}
+
 void OverlayCompositor::setCameraFrame(const QImage &frame)
 {
     QMutexLocker locker(&m_mutex);
@@ -112,6 +119,8 @@ QImage OverlayCompositor::compose(const QImage &screenFrame, const QRect &screen
     OverlayConfig config;
     QSize canvasSize;
     QVector<AnnotationStroke> strokes;
+    AnnotationStroke liveStroke;
+    bool liveStrokeVisible = false;
     QImage camera;
     QImage ppt;
     QPoint cursor;
@@ -123,6 +132,8 @@ QImage OverlayCompositor::compose(const QImage &screenFrame, const QRect &screen
         config = m_config;
         canvasSize = m_outputSize;
         strokes = m_strokes;
+        liveStroke = m_liveStroke;
+        liveStrokeVisible = m_liveStrokeVisible;
         camera = m_cameraFrame;
         ppt = m_pptImage;
         cursor = m_cursor;
@@ -197,7 +208,8 @@ QImage OverlayCompositor::compose(const QImage &screenFrame, const QRect &screen
 
     if (config.overlaysVisible) {
         // Annotations live in virtual-screen coordinates.
-        if (!strokes.isEmpty() && screenRect.width() > 0 && screenRect.height() > 0) {
+        if ((!strokes.isEmpty() || liveStrokeVisible)
+            && screenRect.width() > 0 && screenRect.height() > 0) {
             painter.save();
             const double sx = static_cast<double>(fitted.width()) / screenRect.width();
             const double sy = static_cast<double>(fitted.height()) / screenRect.height();
@@ -206,6 +218,8 @@ QImage OverlayCompositor::compose(const QImage &screenFrame, const QRect &screen
             painter.scale(sx, sy);
             for (const AnnotationStroke &stroke : strokes)
                 drawStroke(painter, stroke);
+            if (liveStrokeVisible)
+                drawStroke(painter, liveStroke);
             painter.restore();
         }
 

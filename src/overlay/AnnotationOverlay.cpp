@@ -79,6 +79,8 @@ void AnnotationOverlay::setDrawingEnabled(bool enabled)
         return;
     }
     m_drawingEnabled = enabled;
+    if (m_drawing && !enabled)
+        emit liveStrokeCleared();
     m_drawing = false;
     updateInteractiveState();
     update();
@@ -184,6 +186,8 @@ void AnnotationOverlay::setTool(AnnotationTool tool)
 {
     if (m_tool == tool)
         return;
+    if (m_drawing)
+        emit liveStrokeCleared();
     m_tool = tool;
     m_drawing = false;
     m_erasing = false;
@@ -316,6 +320,7 @@ void AnnotationOverlay::mousePressEvent(QMouseEvent *event)
     m_currentStroke.end = m_currentStroke.start;
     if (m_tool == AnnotationTool::Pen)
         m_currentStroke.points.append(m_currentStroke.start);
+    emit liveStrokeChanged(m_currentStroke);
     update();
 }
 
@@ -356,6 +361,7 @@ void AnnotationOverlay::mouseMoveEvent(QMouseEvent *event)
             m_currentStroke.points.append(point);
     }
     m_currentStroke.end = point;
+    emit liveStrokeChanged(m_currentStroke);
     update();
 }
 
@@ -391,15 +397,18 @@ void AnnotationOverlay::mouseReleaseEvent(QMouseEvent *event)
     m_currentStroke.end = point;
     if (m_tool == AnnotationTool::Pen && m_currentStroke.points.size() < 2
         && QLineF(m_currentStroke.start, point).length() < 3.0) {
+        emit liveStrokeCleared();
         update();
         return;
     }
     if (m_currentStroke.tool != AnnotationTool::Pen
         && QLineF(m_currentStroke.start, point).length() < 4.0) {
+        emit liveStrokeCleared();
         update();
         return;
     }
     m_model->addStroke(m_currentStroke);
+    emit liveStrokeCleared();
     update();
 }
 

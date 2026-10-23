@@ -112,6 +112,12 @@ OverlayController::OverlayController(QObject *parent)
             this, [this] { setSpotlightEnabled(false); });
     connect(m_overlay, &AnnotationOverlay::magnifierExitRequested,
             this, [this] { setMagnifierEnabled(false); });
+    connect(m_overlay, &AnnotationOverlay::liveStrokeChanged, this,
+            [this](const AnnotationStroke &stroke) {
+        m_compositor.setLiveStroke(stroke, true);
+    });
+    connect(m_overlay, &AnnotationOverlay::liveStrokeCleared, this,
+            [this] { m_compositor.setLiveStroke(AnnotationStroke(), false); });
 
     connect(m_camera, &CameraManager::frameReady, this, [this](const QImage &frame) {
         m_compositor.setCameraFrame(frame);
@@ -157,6 +163,7 @@ void OverlayController::startSession(const QRect &captureRect, const QSize &sour
     m_outputSize = computeOutputSize(captureRect, sourceSize);
     m_compositor.setOutputSize(m_outputSize);
     m_compositor.setConfig(m_config);
+    m_compositor.setLiveStroke(AnnotationStroke(), false);
     m_model->clear();
     m_ripples.clear();
     m_keyEntries.clear();
@@ -233,6 +240,7 @@ void OverlayController::stopSession()
     uninstallHooks();
     m_cameraPreview = false;
     stopCamera();
+    m_compositor.setLiveStroke(AnnotationStroke(), false);
     m_overlay->setDrawingEnabled(false);
     m_overlay->hide();
     m_toolbar->hide();

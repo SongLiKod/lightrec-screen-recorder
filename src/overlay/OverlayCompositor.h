@@ -41,6 +41,7 @@ public:
     QSize outputSize() const;
 
     void setStrokes(const QVector<AnnotationStroke> &strokes);
+    void setLiveStroke(const AnnotationStroke &stroke, bool visible);
     void setCameraFrame(const QImage &frame);
     void setPptImage(const QImage &image);
     void setMouseState(const QPoint &cursor, bool cursorVisible,
@@ -73,6 +74,8 @@ private:
     OverlayConfig m_config;
     QSize m_outputSize{ 1920, 1080 };
     QVector<AnnotationStroke> m_strokes;
+    AnnotationStroke m_liveStroke;
+    bool m_liveStrokeVisible = false;
     QImage m_cameraFrame;
     QImage m_pptImage;
     QPoint m_cursor;
