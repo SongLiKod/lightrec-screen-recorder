@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$QtPath = $env:QT_ROOT,
     [string]$FfmpegRoot = $env:FFMPEG_ROOT,
     [string]$FfmpegBin = $env:FFMPEG_BIN,

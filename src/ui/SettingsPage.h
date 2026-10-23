@@ -17,6 +17,7 @@ class QSpinBox;
 
 namespace lightrec {
 class FFmpegInstaller;
+class UpdateManager;
 }
 
 namespace lightrec {
@@ -29,6 +30,7 @@ public:
 
     void loadFromConfig();
     void startFfmpegInstall();
+    void setRecordingActive(bool active);
 
 protected:
     void showEvent(QShowEvent *event) override;
@@ -42,6 +44,7 @@ signals:    void settingsSaved();
     void captureFloatingToolbarChanged(bool include);
     void floatingDotChanged(bool enabled);
     void floatingDotSizeChanged(int size);
+    void updateReadyToInstall(const QString &archivePath);
 
 private:
     void buildUi();
@@ -109,6 +112,13 @@ private:
     QPushButton *m_ffmpegInstallButton = nullptr;
     QProgressBar *m_ffmpegProgress = nullptr;
     FFmpegInstaller *m_ffmpegInstaller = nullptr;
+
+    QLabel *m_versionLabel = nullptr;
+    QPushButton *m_updateButton = nullptr;
+    QProgressBar *m_updateProgress = nullptr;
+    QLabel *m_updateStatus = nullptr;
+    UpdateManager *m_updateManager = nullptr;
+    bool m_recordingActive = false;
 
     QColor m_penColor = Qt::red;
     QColor m_leftColor = QColor(0x2D, 0x8C, 0xF0);

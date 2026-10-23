@@ -26,7 +26,10 @@
 #include "ui/TasksPage.h"
 #include "ui/ToolboxPage.h"
 #include "ui/Widgets.h"
+#include "update/UpdateManager.h"
 #include "virtualcam/VirtualCamera.h"
+
+#include "lightrec_version.h"
 
 #include <QAction>
 #include <QApplication>
@@ -245,7 +248,9 @@ void MainWindow::buildUi()
 
     buildNavigation();
     navLayout->addStretch(1);
-    auto *version = new QLabel(QStringLiteral("LightRec 1.1 · 本地优先"), navPanel);
+    auto *version = new QLabel(QStringLiteral("LightRec %1 · 本地优先")
+                                   .arg(QString::fromLatin1(LIGHTREC_VERSION_STRING)),
+                               navPanel);
     version->setObjectName(QStringLiteral("appSubtitle"));
     navLayout->addWidget(version);
     auto *privacy = new QLabel(QStringLiteral("录制内容仅保存在本机"), navPanel);
@@ -507,6 +512,22 @@ void MainWindow::wireSignals()
             m_recordDot->showAtSavedPosition();
         else
             m_recordDot->hide();
+    });
+    connect(m_settingsPage, &SettingsPage::updateReadyToInstall, this,
+            [this](const QString &archivePath) {
+        if (m_controller->state() != RecordState::Idle || m_countdown) {
+            ui::warn(this, QStringLiteral("安装更新"),
+                     QStringLiteral("请先停止录制或等待倒计时结束后再安装更新。"));
+            return;
+        }
+        QString error;
+        if (!UpdateManager::installAndRestart(archivePath, &error)) {
+            ui::warn(this, QStringLiteral("安装更新失败"), error);
+            return;
+        }
+        m_quitting = true;
+        shutdownApplication();
+        QTimer::singleShot(0, qApp, &QCoreApplication::quit);
     });
     connect(m_settingsPage, &SettingsPage::floatingDotSizeChanged, this, [this](int size) {
         m_recordDot->setDotSize(size);
@@ -1038,6 +1059,8 @@ void MainWindow::updateTrayState(RecordState state)
 void MainWindow::handleStateChanged(RecordState state)
 {
     updateTrayState(state);
+    if (m_settingsPage)
+        m_settingsPage->setRecordingActive(state != RecordState::Idle);
     m_recordPage->setState(state);
     m_toolbar->setState(state);
     if (m_recordDot)

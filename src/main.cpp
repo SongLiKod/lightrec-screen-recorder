@@ -6,6 +6,8 @@
 #include "core/WindowUtils.h"
 #include "ui/MainWindow.h"
 
+#include "lightrec_version.h"
+
 #include <QApplication>
 #include <QFont>
 #include <QGuiApplication>
@@ -37,7 +39,7 @@ int main(int argc, char *argv[])
     // the explicit way to quit the application.
     app.setQuitOnLastWindowClosed(false);
     QApplication::setApplicationDisplayName(QStringLiteral("LightRec 轻录"));
-    QApplication::setApplicationVersion(QStringLiteral("1.1.0"));
+    QApplication::setApplicationVersion(QString::fromLatin1(LIGHTREC_VERSION_STRING));
 
     lightrec::ConfigStore::instance();
     lightrec::Logger::install();

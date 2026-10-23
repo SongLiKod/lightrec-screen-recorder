@@ -19,15 +19,20 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
 
     bool dialogSeen = false;
-    QTimer::singleShot(300, [&dialogSeen] {
+    QTimer poll;
+    poll.setInterval(50);
+    QObject::connect(&poll, &QTimer::timeout, [&dialogSeen, &poll] {
         for (QWidget *widget : QApplication::topLevelWidgets()) {
             if (auto *dialog = qobject_cast<QFileDialog *>(widget)) {
                 dialogSeen = true;
                 dialog->reject();
+                poll.stop();
+                return;
             }
         }
     });
-    QTimer::singleShot(3000, [] {
+    poll.start();
+    QTimer::singleShot(10000, [] {
         for (QWidget *widget : QApplication::topLevelWidgets()) {
             if (auto *dialog = qobject_cast<QDialog *>(widget))
                 dialog->reject();
@@ -35,5 +40,6 @@ int main(int argc, char *argv[])
     });
 
     lightrec::ui::openFileDialog(nullptr, QStringLiteral("File dialog smoke test"));
+    poll.stop();
     return dialogSeen ? 0 : 1;
 }

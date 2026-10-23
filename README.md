@@ -19,7 +19,7 @@ LightRec 是面向 Windows 10 1903+ / Windows 11（64 位）的轻量化桌面�
 | 视频工具箱 | MP4 修复、0.5x–2.0x 变速、时间裁剪、画面裁切、压缩转码、片段导出 GIF、文字/图片水印（随机位置 / 视频内随机移动）、批量水印、水印方案预设 |
 | 直播 | RTMP 推流 + 串流存盘；局域网 Web 直播（MJPEG），二维码 + 网页链接，16 个并发观看上限；直播画面同步叠加画板/鼠标/摄像头 |
 | 任务与预设 | 定时开始/停止、多任务启停、持久化；整套参数预设保存/应用 |
-| 附加能力 | 虚拟摄像头帧桥（共享内存）、崩溃缓存与启动恢复、单实例运行、日志文件 |
+| 附加能力 | 虚拟摄像头帧桥（共享内存）、崩溃缓存与启动恢复、单实例运行、日志文件、GitHub Release 静默更新（软件内下载安装并重启） |
 | UI / 主题 | 三主题即时切换、监听 Windows 主题变化、100%–200% DPI、Microsoft YaHei UI 字体优先、半透明置顶可拖动悬浮录制条（大小/样式/透明度/显示开关可配置）、EV 风格悬浮录制圆点（默认开启，点击开始/停止）、系统托盘（关闭窗口最小化到托盘，可右键退出） |
 | 快捷标注 | 悬浮工具栏内置标注、局部高亮（聚光灯）、局部放大（放大镜）；高亮/放大区域可在屏幕上拖动调整 |
 
@@ -157,7 +157,18 @@ cmake --build build --target LightRecMediaTest
 .\scripts\package.ps1 -BuildDir build\Release -FfmpegDir C:\ffmpeg\bin -Output dist
 ```
 
-脚本会收集主程序、Qt 运行库/插件、FFmpeg DLL 与 `ffmpeg.exe`，生成 `LightRec-1.1.0-win64.zip`。
+脚本会收集主程序、Qt 运行库/插件、FFmpeg DLL 与 `ffmpeg.exe`，读取根目录 `version.txt` 并生成 `LightRec-<版本号>-win64.zip`。
+
+### 5.1 版本更新
+
+- 项目版本号只在根目录 `version.txt` 中维护；CMake、EXE 版本资源、界面版本号、更新器和打包脚本都从它读取。
+- 发布 GitHub Release 时，将 `version.txt` 更新为新版本，执行打包脚本，并把 `LightRec-<版本号>-win64.zip` 上传到对应 Release。
+- 设置页的“检查更新”会读取 GitHub 最新 Release；发现新版本后下载 zip、校验（如清单提供 SHA-256）、静默替换程序文件并自动重启，不打开浏览器或外部安装器。
+- 安装更新需要程序目录可写，且不能在录制过程中执行。
+
+### 5.2 GitHub Actions
+
+`.github/workflows/build.yml` 会执行单元测试、Windows MinGW 构建和便携包打包；推送 `v*` tag 或在手动运行工作流时填写版本号，会额外创建 GitHub Release 并上传更新 zip。
 
 PRD 的“30MB 以内”目标在 Qt + 完整 FFmpeg shared 构建下通常需要额外处理（UPX、裁剪未使用 Qt 模块、7z 自解压）。脚本会打印体积；如需极限压缩可对可执行文件和 DLL 使用 UPX，但会牺牲启动速度并可能触发杀软误报。
 

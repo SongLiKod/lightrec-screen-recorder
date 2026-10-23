@@ -1,13 +1,17 @@
-param(
+﻿param(
     [string]$BuildDir = "build",
     [string]$FfmpegDir = "",
     [string]$Output = "dist",
-    [string]$Version = "1.1.0",
     [switch]$Upx
 )
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
+$versionFile = Join-Path $root "version.txt"
+if (-not (Test-Path $versionFile)) {
+    throw "缺少 version.txt，无法确定发布版本号"
+}
+$Version = (Get-Content $versionFile -Raw).Trim()
 $build = Join-Path $root $BuildDir
 $exe = Join-Path $build "LightRec.exe"
 
@@ -88,11 +92,13 @@ if ($Upx) {
     }
 }
 
-$zip = Join-Path $root ("LightRec-{0}-win64.zip" -f $Version)
+$zip = Join-Path $target ("LightRec-{0}-win64.zip" -f $Version)
 if (Test-Path $zip) {
     Remove-Item $zip -Force
 }
-Compress-Archive -Path (Join-Path $target "*") -DestinationPath $zip -CompressionLevel Optimal
+$tempZip = Join-Path $env:TEMP ("LightRec-{0}-{1}.zip" -f $Version, [guid]::NewGuid().ToString("N"))
+Compress-Archive -Path (Join-Path $target "*") -DestinationPath $tempZip -CompressionLevel Optimal
+Move-Item -LiteralPath $tempZip -Destination $zip -Force
 
 $size = (Get-Item $zip).Length / 1MB
 Write-Host ("打包完成：{0}（{1:N1} MB）" -f $zip, $size) -ForegroundColor Green

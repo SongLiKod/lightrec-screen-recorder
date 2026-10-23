@@ -1,5 +1,6 @@
 #include "core/WindowUtils.h"
 
+#include <QCoreApplication>
 #include <QGuiApplication>
 #include <QPainter>
 #include <QPixmap>
@@ -135,7 +136,9 @@ bool WindowUtils::isWindows11()
 void WindowUtils::setAppUserModelId()
 {
 #ifdef Q_OS_WIN
-    SetCurrentProcessExplicitAppUserModelID(L"LightRec.ScreenRecorder.1.1");
+    const QString appId = QStringLiteral("LightRec.ScreenRecorder.%1")
+                              .arg(QCoreApplication::applicationVersion());
+    SetCurrentProcessExplicitAppUserModelID(reinterpret_cast<LPCWSTR>(appId.utf16()));
 #endif
 }
 

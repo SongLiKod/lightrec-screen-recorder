@@ -6,6 +6,7 @@
 #include "core/ThemeManager.h"
 #include "media/FFmpegInstaller.h"
 #include "ui/Widgets.h"
+#include "update/UpdateManager.h"
 #include "virtualcam/VirtualCamera.h"
 
 #include <QCheckBox>
@@ -48,6 +49,46 @@ SettingsPage::SettingsPage(QWidget *parent)
     : QWidget(parent)
 {
     buildUi();
+    m_updateManager = new UpdateManager(this);
+    connect(m_updateManager, &UpdateManager::statusChanged, this, [this](const QString &message) {
+        if (m_updateStatus)
+            m_updateStatus->setText(message);
+    });
+    connect(m_updateManager, &UpdateManager::progressChanged, this,
+            [this](qint64 received, qint64 total) {
+        if (!m_updateProgress)
+            return;
+        m_updateProgress->setVisible(true);
+        if (total > 0) {
+            m_updateProgress->setRange(0, 100);
+            m_updateProgress->setValue(static_cast<int>(received * 100 / total));
+        } else {
+            m_updateProgress->setRange(0, 0);
+        }
+    });
+    connect(m_updateManager, &UpdateManager::updateAvailable, this,
+            [this](const QString &version, const QString &notes) {
+        Q_UNUSED(notes)
+        if (m_updateStatus)
+            m_updateStatus->setText(QStringLiteral("发现新版本 %1，正在后台下载…").arg(version));
+    });
+    connect(m_updateManager, &UpdateManager::finished, this,
+            [this](bool success, const QString &message, const QString &archivePath) {
+        if (m_updateButton)
+            m_updateButton->setEnabled(!m_recordingActive);
+        if (m_updateProgress) {
+            if (success && !archivePath.isEmpty()) {
+                m_updateProgress->setRange(0, 100);
+                m_updateProgress->setValue(100);
+            } else {
+                m_updateProgress->setVisible(false);
+            }
+        }
+        if (m_updateStatus)
+            m_updateStatus->setText(message);
+        if (success && !archivePath.isEmpty())
+            emit updateReadyToInstall(archivePath);
+    });
     loadFromConfig();
 }
 
@@ -415,6 +456,51 @@ void SettingsPage::buildUi()
                        "会议软件（Teams / Zoom / 腾讯会议）即可选择 LightRec Camera。"), live));
     layout->addWidget(live);
 
+    // About / update ------------------------------------------------------
+    QFrame *about = settingsCard(content, QStringLiteral("关于与更新"), &cardLayout);
+    auto *versionRow = new QWidget(about);
+    auto *versionLayout = new QHBoxLayout(versionRow);
+    versionLayout->setContentsMargins(0, 0, 0, 0);
+    m_versionLabel = ui::valueLabel(
+        QStringLiteral("当前版本：%1").arg(UpdateManager::currentVersion()), versionRow);
+    m_updateButton = ui::secondaryButton(QStringLiteral("检查更新"), versionRow);
+    versionLayout->addWidget(m_versionLabel, 1);
+    versionLayout->addWidget(m_updateButton);
+    cardLayout->addWidget(versionRow);
+
+    m_updateProgress = new QProgressBar(about);
+    m_updateProgress->setRange(0, 100);
+    m_updateProgress->setValue(0);
+    m_updateProgress->setVisible(false);
+    cardLayout->addWidget(m_updateProgress);
+    m_updateStatus = ui::mutedLabel(QStringLiteral("点击“检查更新”获取最新版本"), about);
+    m_updateStatus->setWordWrap(true);
+    cardLayout->addWidget(m_updateStatus);
+    cardLayout->addWidget(ui::mutedLabel(
+        QStringLiteral("更新包从 GitHub Releases 下载；下载完成后由软件静默安装并自动重启，"
+                       "不会打开浏览器或其他安装程序。录制期间不能安装更新。"), about));
+
+    QLabel *notice = ui::mutedLabel(
+        QStringLiteral("本软件为个人兴趣开发产物，仅供个人学习、娱乐、非商业性质免费使用\n"
+                       "作者保留全部知识产权，未经书面许可不得二次开发、修改、复刻、衍生创作或用于任何商业营利用途\n"
+                       "使用者需遵守当地法律法规与网络使用规范，违规使用的后果自行承担"),
+        about);
+    notice->setWordWrap(true);
+    notice->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    notice->setStyleSheet(QStringLiteral("color:#8A94A6; line-height:1.6; padding:8px 0;"));
+    cardLayout->addWidget(notice);
+    layout->addWidget(about);
+
+    connect(m_updateButton, &QPushButton::clicked, this, [this] {
+        if (!m_updateManager || m_updateManager->isBusy())
+            return;
+        m_updateButton->setEnabled(false);
+        m_updateProgress->setVisible(true);
+        m_updateProgress->setRange(0, 0);
+        m_updateStatus->setText(QStringLiteral("正在检查更新…"));
+        m_updateManager->checkForUpdates();
+    });
+
     auto *saveRow = new QHBoxLayout();
     saveRow->addStretch(1);
     auto *saveButton = ui::primaryButton(QStringLiteral("保存设置"), content);
@@ -603,6 +689,17 @@ void SettingsPage::startFfmpegInstall()
     m_ffmpegProgress->setVisible(true);
     m_ffmpegProgress->setRange(0, 0);
     m_ffmpegInstaller->install();
+}
+
+void SettingsPage::setRecordingActive(bool active)
+{
+    m_recordingActive = active;
+    if (!m_updateButton)
+        return;
+    const bool busy = m_updateManager && m_updateManager->isBusy();
+    m_updateButton->setEnabled(!active && !busy);
+    m_updateButton->setToolTip(active ? QStringLiteral("录制期间不能安装更新")
+                                      : QStringLiteral("检查并静默安装新版本"));
 }
 
 void SettingsPage::save()

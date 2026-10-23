@@ -1,7 +1,15 @@
 cmake_minimum_required(VERSION 3.21)
 
+# Single source of truth for the application version. Update version.txt only;
+# CMake, the EXE resource, the About UI, the updater, and packaging all read it.
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/version.txt" LIGHTREC_VERSION LIMIT_COUNT 1)
+string(STRIP "${LIGHTREC_VERSION}" LIGHTREC_VERSION)
+if(NOT LIGHTREC_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
+    message(FATAL_ERROR "version.txt must contain a semantic version such as 1.2.0")
+endif()
+
 project(LightRec
-    VERSION 1.1.0
+    VERSION ${LIGHTREC_VERSION}
     DESCRIPTION "LightRec - lightweight Windows screen recorder"
     LANGUAGES CXX)
 
@@ -78,7 +86,7 @@ endif()
 # ---------------------------------------------------------------------------
 set(LIGHTREC_SOURCES
     src/main.cpp
-    resources/lightrec.rc
+    ${CMAKE_CURRENT_BINARY_DIR}/lightrec.rc
 
     src/core/AppPaths.cpp
     src/core/ConfigStore.cpp
@@ -99,6 +107,8 @@ set(LIGHTREC_SOURCES
     src/media/MediaProbe.cpp
     src/media/FFmpegTool.cpp
     src/media/FFmpegInstaller.cpp
+
+    src/update/UpdateManager.cpp
 
     src/overlay/AnnotationModel.cpp
     src/overlay/OverlayCompositor.cpp
@@ -163,6 +173,8 @@ set(LIGHTREC_HEADERS
     src/media/FFmpegTool.h
     src/media/FFmpegInstaller.h
 
+    src/update/UpdateManager.h
+
     src/overlay/AnnotationModel.h
     src/overlay/OverlayCompositor.h
     src/overlay/OverlayController.h
@@ -220,6 +232,17 @@ configure_file(
     ${CMAKE_CURRENT_BINARY_DIR}/lightrec.ico
     COPYONLY)
 
+set(LIGHTREC_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+file(MAKE_DIRECTORY "${LIGHTREC_GENERATED_DIR}")
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/resources/lightrec_version.h.in
+    ${LIGHTREC_GENERATED_DIR}/lightrec_version.h
+    @ONLY)
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/resources/lightrec.rc.in
+    ${CMAKE_CURRENT_BINARY_DIR}/lightrec.rc
+    @ONLY)
+
 qt_add_resources(LightRec "lightrec_assets"
     PREFIX "/"
     BASE "resources"
@@ -230,7 +253,7 @@ qt_add_resources(LightRec "lightrec_assets"
         resources/icons/app.svg
 )
 
-target_include_directories(LightRec PRIVATE src)
+target_include_directories(LightRec PRIVATE src ${LIGHTREC_GENERATED_DIR})
 
 target_compile_definitions(LightRec PRIVATE
     NOMINMAX
@@ -302,6 +325,13 @@ if(LIGHTREC_BUILD_TESTS AND FFMPEG_FOUND)
     )
     target_include_directories(LightRecWatermarkTest PRIVATE src)
     target_link_libraries(LightRecWatermarkTest PRIVATE Qt6::Core Qt6::Gui)
+
+    qt_add_executable(LightRecUpdateManagerTest
+        tests/UpdateManagerTest.cpp
+        src/update/UpdateManager.cpp
+    )
+    target_include_directories(LightRecUpdateManagerTest PRIVATE src ${LIGHTREC_GENERATED_DIR})
+    target_link_libraries(LightRecUpdateManagerTest PRIVATE Qt6::Core Qt6::Network)
 
     qt_add_executable(LightRecPreviewDialogTest
         tests/PreviewDialogTest.cpp

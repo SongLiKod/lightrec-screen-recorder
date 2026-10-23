@@ -1,5 +1,5 @@
 # LightRec（轻录）录屏软件 技术实现文档
-版本：V1.1
+版本：以根目录 `version.txt` 为准
 日期：2026-10-22
 目标平台：Windows10 1903+ / Windows11 64位
 主技术栈：C++17 + Qt6 (Qt Widgets) + FFmpeg

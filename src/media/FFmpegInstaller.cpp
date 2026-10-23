@@ -114,7 +114,8 @@ void FFmpegInstaller::startDownload(const QString &url)
     QNetworkRequest request{ QUrl(url) };
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                          QNetworkRequest::NoLessSafeRedirectPolicy);
-    request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("LightRec/1.1"));
+    request.setHeader(QNetworkRequest::UserAgentHeader,
+                      QStringLiteral("LightRec/%1").arg(QCoreApplication::applicationVersion()));
     m_reply = m_network->get(request);
 
     connect(m_reply, &QNetworkReply::readyRead, this, [this] {
