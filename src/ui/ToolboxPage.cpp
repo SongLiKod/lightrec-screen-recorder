@@ -541,13 +541,22 @@ void ToolboxPage::refreshAudioTrackAvailability()
     const MediaInfo media = MediaProbe::probe(input);
     const bool hasSystem = media.systemAudioIndex >= 0;
     const bool hasMic = media.micAudioIndex >= 0;
+    const bool newFile = input != m_audioProbedInput;
+    m_audioProbedInput = input;
 
     m_audioSystemCheck->setEnabled(hasSystem);
     m_audioMicCheck->setEnabled(hasMic);
-    if (hasSystem)
-        m_audioSystemCheck->setChecked(true);
-    if (hasMic)
-        m_audioMicCheck->setChecked(true);
+    // 只有换了源文件才恢复“两条都勾选”的默认值。切页、编辑路径触发的刷新
+    // 不再覆盖用户已做的勾选，否则“仅系统声音”会被静默改回混合导出。
+    if (newFile) {
+        m_audioSystemCheck->setChecked(hasSystem);
+        m_audioMicCheck->setChecked(hasMic);
+    } else {
+        if (!hasSystem)
+            m_audioSystemCheck->setChecked(false);
+        if (!hasMic)
+            m_audioMicCheck->setChecked(false);
+    }
 
     QStringList names;
     if (hasSystem)
@@ -852,6 +861,12 @@ void ToolboxPage::processNextBatch()
         arguments = FFmpegTool::audioExportArguments(input, output, system, mic,
                                                      m_media.systemAudioIndex,
                                                      m_media.micAudioIndex);
+        QStringList roles;
+        if (system)
+            roles << QStringLiteral("系统声音=第%1条音轨").arg(m_media.systemAudioIndex + 1);
+        if (mic)
+            roles << QStringLiteral("麦克风=第%1条音轨").arg(m_media.micAudioIndex + 1);
+        appendLog(QStringLiteral("导出音轨：%1").arg(roles.join(QStringLiteral("、"))));
         break;
     }
     }

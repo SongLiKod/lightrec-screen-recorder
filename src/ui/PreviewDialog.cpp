@@ -154,10 +154,15 @@ void PreviewDialog::setupTrackSelector()
     }
 
     m_trackCombo->addItem(QStringLiteral("系统 + 麦克风（录制原声）"), ChoiceMixed);
+    // 标出实际读取的源音轨序号，选轨不符时可以直接对照排查。
     if (m_media.systemAudioIndex >= 0)
-        m_trackCombo->addItem(QStringLiteral("仅系统声音"), ChoiceSystem);
+        m_trackCombo->addItem(QStringLiteral("仅系统声音（第%1条音轨）")
+                                  .arg(m_media.systemAudioIndex + 1),
+                              ChoiceSystem);
     if (m_media.micAudioIndex >= 0)
-        m_trackCombo->addItem(QStringLiteral("仅麦克风"), ChoiceMic);
+        m_trackCombo->addItem(QStringLiteral("仅麦克风（第%1条音轨）")
+                                  .arg(m_media.micAudioIndex + 1),
+                              ChoiceMic);
     m_trackCombo->setEnabled(m_trackCombo->count() > 1);
 }
 
@@ -180,8 +185,13 @@ void PreviewDialog::applyAudioChoice(int choice)
 
     const QString cached = previewCachePath(choice);
     if (QFileInfo::exists(cached) && QFileInfo(cached).size() > 0) {
-        playSource(cached);
-        return;
+        // 准备被取消/失败会留下没有 moov 的半截文件（size>0 但播不了），
+        // 先验证可读再用；废文件删掉重新生成。
+        if (MediaProbe::probe(cached).valid) {
+            playSource(cached);
+            return;
+        }
+        QFile::remove(cached);
     }
     startAudioPreparation(choice, cached);
 }
@@ -195,24 +205,23 @@ void PreviewDialog::startAudioPreparation(int choice, const QString &output)
                                          m_media.systemAudioIndex, m_media.micAudioIndex,
                                          /*faststart=*/false);
     if (!system && !mic) {
-        playSource(m_filePath);
+        handlePreparationUnavailable(choice, QStringLiteral("源文件中没有所选音轨"));
         return;
     }
     if (!m_ffmpeg->available()) {
-        playSource(m_filePath);
-        m_statusLabel->setText(QStringLiteral("未找到 ffmpeg，已按默认音轨播放"));
+        handlePreparationUnavailable(choice, QStringLiteral("未找到 ffmpeg，无法生成所选音轨的预览"));
         return;
     }
 
     m_player->pause();
     m_statusLabel->setText(QStringLiteral("正在准备音轨（首次需要几秒，之后会缓存）…"));
 
-    // run() 会先取消上一个任务，取消过程可能同步发出 finished 信号，
-    // 先清空 pending 以忽略它，再登记本次任务。
-    m_pendingChoice = -1;
-    m_ffmpeg->run(arguments, QStringLiteral("预览音轨"), m_media.durationMs);
+    // 先登记本次任务再启动：run() 内部会先 cancel()，且启动失败会同步发出
+    // finished；若等 run() 返回再登记，这次失败会被当成上一个任务忽略，
+    // 界面会一直卡在“正在准备”。
     m_pendingChoice = choice;
     m_pendingOutput = output;
+    m_ffmpeg->run(arguments, QStringLiteral("预览音轨"), m_media.durationMs);
 }
 
 void PreviewDialog::handleAudioPrepared(bool success, const QString &message)
@@ -220,6 +229,7 @@ void PreviewDialog::handleAudioPrepared(bool success, const QString &message)
     if (m_pendingChoice < 0)
         return;
     const QString output = m_pendingOutput;
+    const int choice = m_pendingChoice;
     m_pendingChoice = -1;
     m_pendingOutput.clear();
 
@@ -227,8 +237,25 @@ void PreviewDialog::handleAudioPrepared(bool success, const QString &message)
         playSource(output);
         return;
     }
-    playSource(m_filePath);
-    m_statusLabel->setText(QStringLiteral("音轨准备失败：%1，已按默认音轨播放").arg(message));
+
+    // 失败时清掉半截输出，否则 size>0 会让下次把它当有效缓存播放。
+    if (QFileInfo::exists(output))
+        QFile::remove(output);
+    handlePreparationUnavailable(choice, QStringLiteral("音轨准备失败：%1").arg(message));
+}
+
+void PreviewDialog::handlePreparationUnavailable(int choice, const QString &message)
+{
+    // 原文件的默认音轨就是系统声音，只有“仅系统声音”回退后内容才等价；
+    // 混合/仅麦克风回退会播出错误的声源（选麦克风却听到系统声），宁可停下报错。
+    if (choice == ChoiceSystem && m_media.systemAudioIndex == 0) {
+        playSource(m_filePath);
+        m_statusLabel->setText(message + QStringLiteral("，已改用原文件的系统声音播放"));
+        return;
+    }
+    m_player->stop();
+    m_player->setSource(QUrl());
+    m_statusLabel->setText(message + QStringLiteral("。重新选择一次音轨即可重试"));
 }
 
 void PreviewDialog::playSource(const QString &path)
@@ -268,8 +295,10 @@ void PreviewDialog::prunePreviewCache()
 void PreviewDialog::showEvent(QShowEvent *event)
 {
     QDialog::showEvent(event);
+    // 准备期间加载的还是上一次选择的音轨，恢复窗口时不能把它放出去。
     if (m_player && !m_player->source().isEmpty()
-        && m_player->playbackState() != QMediaPlayer::PlayingState)
+        && m_player->playbackState() != QMediaPlayer::PlayingState
+        && m_pendingChoice < 0)
         m_player->play();
 }
 
@@ -316,6 +345,9 @@ void PreviewDialog::toggleFullScreen()
 void PreviewDialog::togglePlay()
 {
     if (!m_player || m_player->source().isEmpty())
+        return;
+    // 正在准备所选音轨时，播放器里还是上一次选择的声音，忽略播放请求。
+    if (m_pendingChoice >= 0)
         return;
     if (m_player->playbackState() == QMediaPlayer::PlayingState)
         m_player->pause();

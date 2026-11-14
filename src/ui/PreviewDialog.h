@@ -37,6 +37,8 @@ private:
     void applyAudioChoice(int choice);
     void startAudioPreparation(int choice, const QString &output);
     void handleAudioPrepared(bool success, const QString &message);
+    // 准备不可行时的统一处置：内容等价才回退原文件，否则停下报错。
+    void handlePreparationUnavailable(int choice, const QString &message);
     void playSource(const QString &path);
     QString previewCachePath(int choice) const;
     static void prunePreviewCache();
