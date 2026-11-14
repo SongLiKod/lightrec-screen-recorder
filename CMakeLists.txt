@@ -337,10 +337,22 @@ if(LIGHTREC_BUILD_TESTS AND FFMPEG_FOUND)
         tests/PreviewDialogTest.cpp
         src/ui/PreviewDialog.cpp
         src/ui/Widgets.cpp
+        src/media/MediaProbe.cpp
+        src/media/FFmpegTool.cpp
+        src/core/AppPaths.cpp
     )
     target_include_directories(LightRecPreviewDialogTest PRIVATE src)
     target_link_libraries(LightRecPreviewDialogTest PRIVATE
         Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Multimedia Qt6::MultimediaWidgets Qt6::Test)
+
+    # 音轨导出参数构造器：纯逻辑测试，不依赖 FFmpeg 头文件与运行时。
+    qt_add_executable(LightRecAudioExportTest
+        tests/AudioExportTest.cpp
+        src/media/FFmpegTool.cpp
+        src/core/AppPaths.cpp
+    )
+    target_include_directories(LightRecAudioExportTest PRIVATE src)
+    target_link_libraries(LightRecAudioExportTest PRIVATE Qt6::Core Qt6::Gui)
 
     find_package(Qt6 REQUIRED COMPONENTS Test)
     qt_add_executable(LightRecAnnotationTest
