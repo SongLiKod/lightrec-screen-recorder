@@ -1,10 +1,17 @@
 #include "ui/PreviewDialog.h"
+
 #include "core/Types.h"
+#include "media/FFmpegTool.h"
 #include "ui/Widgets.h"
 
 #include <QAudioOutput>
+#include <QComboBox>
+#include <QCryptographicHash>
+#include <QDateTime>
 #include <QDesktopServices>
+#include <QDir>
 #include <QEvent>
+#include <QFile>
 #include <QFileInfo>
 #include <QHBoxLayout>
 #include <QKeyEvent>
@@ -20,12 +27,26 @@
 
 namespace lightrec {
 
+namespace {
+
+// QMediaPlayer 只会播放默认音轨，因此“混合 / 仅系统 / 仅麦克风”都先用 ffmpeg
+// 生成一个临时预览文件（视频流直接复制，只处理音频），按源文件与选项缓存。
+QString previewCacheDir()
+{
+    const QString dir = QDir::temp().filePath(QStringLiteral("lightrec_preview"));
+    QDir().mkpath(dir);
+    return dir;
+}
+
+} // namespace
+
 PreviewDialog::PreviewDialog(const QString &filePath, QWidget *parent)
     : QDialog(parent)
     , m_filePath(filePath)
 {
     setWindowTitle(QStringLiteral("预览 - %1").arg(QFileInfo(filePath).fileName()));
     resize(960, 620);
+    prunePreviewCache();
 
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(14, 14, 14, 14);
@@ -44,12 +65,18 @@ PreviewDialog::PreviewDialog(const QString &filePath, QWidget *parent)
     m_positionSlider = new QSlider(Qt::Horizontal, this);
     m_timeLabel = new QLabel(QStringLiteral("00:00 / 00:00"), this);
     m_timeLabel->setObjectName(QStringLiteral("mutedLabel"));
+    auto *trackLabel = new QLabel(QStringLiteral("音轨"), this);
+    trackLabel->setObjectName(QStringLiteral("mutedLabel"));
+    m_trackCombo = new QComboBox(this);
+    m_trackCombo->setToolTip(QStringLiteral("选择预览时播放的声音"));
     auto *openFolder = ui::secondaryButton(QStringLiteral("打开目录"), this);
     m_fullscreenButton = ui::secondaryButton(QStringLiteral("全屏"), this);
     m_fullscreenButton->setToolTip(QStringLiteral("全屏 / 退出全屏（F11，或双击视频）"));
     controls->addWidget(playButton);
     controls->addWidget(m_positionSlider, 1);
     controls->addWidget(m_timeLabel);
+    controls->addWidget(trackLabel);
+    controls->addWidget(m_trackCombo);
     controls->addWidget(openFolder);
     controls->addWidget(m_fullscreenButton);
     layout->addLayout(controls);
@@ -59,7 +86,7 @@ PreviewDialog::PreviewDialog(const QString &filePath, QWidget *parent)
     m_audioOutput = new QAudioOutput(this);
     m_player->setAudioOutput(m_audioOutput);
     m_player->setVideoOutput(m_videoWidget);
-    m_player->setSource(QUrl::fromLocalFile(filePath));
+    m_ffmpeg = new FFmpegTool(this);
 
     connect(playButton, &QPushButton::clicked, this, [this, playButton] {
         togglePlay();
@@ -74,6 +101,13 @@ PreviewDialog::PreviewDialog(const QString &filePath, QWidget *parent)
     connect(m_player, &QMediaPlayer::errorOccurred, this, [this](QMediaPlayer::Error, const QString &message) {
         m_statusLabel->setText(QStringLiteral("无法播放：%1").arg(message));
     });
+    connect(m_player, &QMediaPlayer::mediaStatusChanged, this, [this](QMediaPlayer::MediaStatus status) {
+        if (status == QMediaPlayer::LoadedMedia && m_resumePosition > 0) {
+            const qint64 target = m_resumePosition;
+            m_resumePosition = 0;
+            m_player->setPosition(target);
+        }
+    });
     connect(m_positionSlider, &QSlider::sliderMoved, this, [this](int value) {
         m_player->setPosition(value);
     });
@@ -81,20 +115,161 @@ PreviewDialog::PreviewDialog(const QString &filePath, QWidget *parent)
         QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(m_filePath).absolutePath()));
     });
     connect(m_fullscreenButton, &QPushButton::clicked, this, &PreviewDialog::toggleFullScreen);
+    connect(m_ffmpeg, &FFmpegTool::finished, this, &PreviewDialog::handleAudioPrepared);
+    connect(m_trackCombo, &QComboBox::activated, this, [this](int) {
+        applyAudioChoice(m_trackCombo->currentData().toInt());
+    });
 
-    m_player->play();
+    m_media = MediaProbe::probe(filePath);
+    setupTrackSelector();
+    applyAudioChoice(m_media.audioTracks >= 2 ? ChoiceMixed : ChoiceSystem);
 }
 
 PreviewDialog::~PreviewDialog()
 {
+    m_pendingChoice = -1;
+    if (m_ffmpeg)
+        m_ffmpeg->cancel();
     if (m_player)
         m_player->stop();
+}
+
+void PreviewDialog::setupTrackSelector()
+{
+    if (!m_trackCombo)
+        return;
+    m_trackCombo->clear();
+
+    if (m_media.audioTracks <= 0) {
+        m_trackCombo->addItem(QStringLiteral("无音轨"));
+        m_trackCombo->setEnabled(false);
+        return;
+    }
+    if (m_media.audioTracks == 1) {
+        // 录制时只开了一条声音，原文件里就是它，直接播放即可。
+        m_trackCombo->addItem(m_media.micAudioIndex == 0 ? QStringLiteral("麦克风")
+                                                        : QStringLiteral("系统声音"));
+        m_trackCombo->setEnabled(false);
+        return;
+    }
+
+    m_trackCombo->addItem(QStringLiteral("系统 + 麦克风（录制原声）"), ChoiceMixed);
+    if (m_media.systemAudioIndex >= 0)
+        m_trackCombo->addItem(QStringLiteral("仅系统声音"), ChoiceSystem);
+    if (m_media.micAudioIndex >= 0)
+        m_trackCombo->addItem(QStringLiteral("仅麦克风"), ChoiceMic);
+    m_trackCombo->setEnabled(m_trackCombo->count() > 1);
+}
+
+void PreviewDialog::applyAudioChoice(int choice)
+{
+    if (!m_player)
+        return;
+    m_resumePosition = m_player->position();
+
+    // 换了选择就丢弃正在进行的准备任务（取消时可能同步发出 finished，先清空 pending）。
+    if (m_pendingChoice >= 0) {
+        m_pendingChoice = -1;
+        m_ffmpeg->cancel();
+    }
+
+    if (m_media.audioTracks < 2) {
+        playSource(m_filePath);
+        return;
+    }
+
+    const QString cached = previewCachePath(choice);
+    if (QFileInfo::exists(cached) && QFileInfo(cached).size() > 0) {
+        playSource(cached);
+        return;
+    }
+    startAudioPreparation(choice, cached);
+}
+
+void PreviewDialog::startAudioPreparation(int choice, const QString &output)
+{
+    const bool system = choice != ChoiceMic && m_media.systemAudioIndex >= 0;
+    const bool mic = choice != ChoiceSystem && m_media.micAudioIndex >= 0;
+    const QStringList arguments =
+        FFmpegTool::audioExportArguments(m_filePath, output, system, mic,
+                                         m_media.systemAudioIndex, m_media.micAudioIndex,
+                                         /*faststart=*/false);
+    if (!system && !mic) {
+        playSource(m_filePath);
+        return;
+    }
+    if (!m_ffmpeg->available()) {
+        playSource(m_filePath);
+        m_statusLabel->setText(QStringLiteral("未找到 ffmpeg，已按默认音轨播放"));
+        return;
+    }
+
+    m_player->pause();
+    m_statusLabel->setText(QStringLiteral("正在准备音轨（首次需要几秒，之后会缓存）…"));
+
+    // run() 会先取消上一个任务，取消过程可能同步发出 finished 信号，
+    // 先清空 pending 以忽略它，再登记本次任务。
+    m_pendingChoice = -1;
+    m_ffmpeg->run(arguments, QStringLiteral("预览音轨"), m_media.durationMs);
+    m_pendingChoice = choice;
+    m_pendingOutput = output;
+}
+
+void PreviewDialog::handleAudioPrepared(bool success, const QString &message)
+{
+    if (m_pendingChoice < 0)
+        return;
+    const QString output = m_pendingOutput;
+    m_pendingChoice = -1;
+    m_pendingOutput.clear();
+
+    if (success && QFileInfo::exists(output) && QFileInfo(output).size() > 0) {
+        playSource(output);
+        return;
+    }
+    playSource(m_filePath);
+    m_statusLabel->setText(QStringLiteral("音轨准备失败：%1，已按默认音轨播放").arg(message));
+}
+
+void PreviewDialog::playSource(const QString &path)
+{
+    if (!m_player)
+        return;
+    m_statusLabel->clear();
+    m_player->setSource(QUrl::fromLocalFile(path));
+    m_player->play();
+}
+
+QString PreviewDialog::previewCachePath(int choice) const
+{
+    const QFileInfo info(m_filePath);
+    const QByteArray key = (m_filePath + QLatin1Char('|') + QString::number(info.size())
+                            + QLatin1Char('|') + info.lastModified().toString(Qt::ISODate)
+                            + QLatin1Char('|') + QString::number(choice))
+                               .toUtf8();
+    const QString hash = QString::fromLatin1(
+        QCryptographicHash::hash(key, QCryptographicHash::Sha1).toHex().left(12));
+    const QString name = QStringLiteral("%1_%2_%3.mp4")
+                             .arg(info.completeBaseName(), QString::number(choice), hash);
+    return QDir(previewCacheDir()).filePath(name);
+}
+
+void PreviewDialog::prunePreviewCache()
+{
+    const QDir dir(previewCacheDir());
+    const QDateTime cutoff = QDateTime::currentDateTime().addDays(-1);
+    const QFileInfoList entries = dir.entryInfoList({ QStringLiteral("*.mp4") }, QDir::Files);
+    for (const QFileInfo &file : entries) {
+        if (file.lastModified() < cutoff)
+            QFile::remove(file.absoluteFilePath());
+    }
 }
 
 void PreviewDialog::showEvent(QShowEvent *event)
 {
     QDialog::showEvent(event);
-    if (m_player && m_player->playbackState() != QMediaPlayer::PlayingState)
+    if (m_player && !m_player->source().isEmpty()
+        && m_player->playbackState() != QMediaPlayer::PlayingState)
         m_player->play();
 }
 
@@ -140,7 +315,7 @@ void PreviewDialog::toggleFullScreen()
 
 void PreviewDialog::togglePlay()
 {
-    if (!m_player)
+    if (!m_player || m_player->source().isEmpty())
         return;
     if (m_player->playbackState() == QMediaPlayer::PlayingState)
         m_player->pause();

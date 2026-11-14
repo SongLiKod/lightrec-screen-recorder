@@ -426,4 +426,44 @@ QStringList FFmpegTool::watermarkArguments(const QString &input, const QString &
     return arguments;
 }
 
+QStringList FFmpegTool::audioExportArguments(const QString &input, const QString &output,
+                                             bool system, bool mic,
+                                             int systemIndex, int micIndex,
+                                             bool faststart)
+{
+    const bool withSystem = system && systemIndex >= 0;
+    const bool withMic = mic && micIndex >= 0;
+    if (!withSystem && !withMic)
+        return {};
+
+    QStringList arguments;
+    arguments << QStringLiteral("-i") << input;
+
+    if (withSystem && withMic) {
+        // 系统声音 100%、麦克风 -6 dB 后相加：人声仍然清晰，但不会盖住系统声音。
+        const QString filter =
+            QStringLiteral("[0:a:%1]volume=1.0[sys];[0:a:%2]volume=-6dB[mic];"
+                            "[sys][mic]amix=inputs=2:duration=first:normalize=0[aout]")
+                .arg(systemIndex)
+                .arg(micIndex);
+        arguments << QStringLiteral("-filter_complex") << filter
+                  << QStringLiteral("-map") << QStringLiteral("0:v?")
+                  << QStringLiteral("-map") << QStringLiteral("[aout]")
+                  << QStringLiteral("-c:v") << QStringLiteral("copy")
+                  << QStringLiteral("-c:a") << QStringLiteral("aac")
+                  << QStringLiteral("-b:a") << QStringLiteral("192k");
+    } else {
+        arguments << QStringLiteral("-map") << QStringLiteral("0:v?")
+                  << QStringLiteral("-map")
+                  << QStringLiteral("0:a:%1").arg(withSystem ? systemIndex : micIndex)
+                  << QStringLiteral("-c:v") << QStringLiteral("copy")
+                  << QStringLiteral("-c:a") << QStringLiteral("copy");
+    }
+
+    if (faststart)
+        arguments << QStringLiteral("-movflags") << QStringLiteral("+faststart");
+    arguments << output;
+    return arguments;
+}
+
 } // namespace lightrec

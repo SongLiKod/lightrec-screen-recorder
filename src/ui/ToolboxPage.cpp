@@ -84,7 +84,7 @@ void ToolboxPage::buildUi()
     title->setObjectName(QStringLiteral("appTitle"));
     layout->addWidget(title);
     layout->addWidget(ui::mutedLabel(
-        QStringLiteral("内置修复、变速、裁剪、压缩、GIF 与水印，无需第三方剪辑软件。"), this));
+        QStringLiteral("内置修复、变速、裁剪、压缩、GIF、水印与音轨导出，无需第三方剪辑软件。"), this));
 
     auto *body = new QHBoxLayout();
     body->setSpacing(16);
@@ -94,7 +94,8 @@ void ToolboxPage::buildUi()
     m_toolList->setFixedWidth(190);
     const QStringList tools = {
         QStringLiteral("视频修复"), QStringLiteral("视频变速"), QStringLiteral("裁剪 / 画面裁切"),
-        QStringLiteral("视频压缩"), QStringLiteral("导出 GIF"), QStringLiteral("水印 / 批量水印")
+        QStringLiteral("视频压缩"), QStringLiteral("导出 GIF"), QStringLiteral("水印 / 批量水印"),
+        QStringLiteral("音轨导出")
     };
     for (const QString &name : tools)
         m_toolList->addItem(name);
@@ -144,6 +145,7 @@ void ToolboxPage::buildUi()
     m_stack->addWidget(buildCompressPage());
     m_stack->addWidget(buildGifPage());
     m_stack->addWidget(buildWatermarkPage());
+    m_stack->addWidget(buildAudioExportPage());
     right->addWidget(m_stack, 1);
 
     auto *actionRow = new QHBoxLayout();
@@ -177,6 +179,7 @@ void ToolboxPage::buildUi()
     connect(m_inputEdit, &QLineEdit::textChanged, this, [this] {
         m_outputEdit->clear();
         updateOutputSuggestion();
+        refreshAudioTrackAvailability();
     });
     connect(m_toolList, &QListWidget::currentRowChanged, this, [this](int row) {
         if (row < 0)
@@ -185,6 +188,8 @@ void ToolboxPage::buildUi()
         m_stack->setCurrentIndex(row);
         m_outputEdit->clear();
         updateOutputSuggestion();
+        if (m_operation == AudioExport)
+            refreshAudioTrackAvailability();
     });
 }
 
@@ -489,6 +494,73 @@ void ToolboxPage::updateCropControls()
         spin->setEnabled(enabled);
 }
 
+QWidget *ToolboxPage::buildAudioExportPage()
+{
+    auto *page = new QWidget(this);
+    auto *layout = new QVBoxLayout(page);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(10);
+    layout->addWidget(ui::sectionTitle(QStringLiteral("按音轨导出"), page));
+
+    m_audioSystemCheck = new QCheckBox(QStringLiteral("系统声音"), page);
+    m_audioMicCheck = new QCheckBox(QStringLiteral("麦克风"), page);
+    m_audioSystemCheck->setChecked(true);
+    m_audioMicCheck->setChecked(true);
+    auto *checks = new QWidget(page);
+    auto *checksLayout = new QHBoxLayout(checks);
+    checksLayout->setContentsMargins(0, 0, 0, 0);
+    checksLayout->setSpacing(18);
+    checksLayout->addWidget(m_audioSystemCheck);
+    checksLayout->addWidget(m_audioMicCheck);
+    checksLayout->addStretch(1);
+    layout->addWidget(checks);
+
+    m_audioTrackHint = ui::mutedLabel(QStringLiteral("选择源文件后自动识别音轨"), page);
+    layout->addWidget(m_audioTrackHint);
+    layout->addWidget(description(
+        QStringLiteral("选择要写入导出视频的声音：只勾选一条时直接复制该音轨；"
+                       "同时勾选两条时会混合成一条音轨（系统声音 100%、麦克风 -6 dB）。"
+                       "视频画面直接复制，不重新编码，导出速度取决于磁盘。"),
+        page));
+    layout->addStretch(1);
+    return page;
+}
+
+void ToolboxPage::refreshAudioTrackAvailability()
+{
+    if (!m_audioSystemCheck || !m_audioMicCheck || !m_audioTrackHint)
+        return;
+    const QString input = m_inputEdit->text().trimmed();
+    if (input.isEmpty() || !QFileInfo::exists(input)) {
+        m_audioSystemCheck->setEnabled(true);
+        m_audioMicCheck->setEnabled(true);
+        m_audioTrackHint->setText(QStringLiteral("选择源文件后自动识别音轨"));
+        return;
+    }
+
+    const MediaInfo media = MediaProbe::probe(input);
+    const bool hasSystem = media.systemAudioIndex >= 0;
+    const bool hasMic = media.micAudioIndex >= 0;
+
+    m_audioSystemCheck->setEnabled(hasSystem);
+    m_audioMicCheck->setEnabled(hasMic);
+    if (hasSystem)
+        m_audioSystemCheck->setChecked(true);
+    if (hasMic)
+        m_audioMicCheck->setChecked(true);
+
+    QStringList names;
+    if (hasSystem)
+        names << QStringLiteral("系统声音");
+    if (hasMic)
+        names << QStringLiteral("麦克风");
+    m_audioTrackHint->setText(media.valid
+                                  ? (names.isEmpty()
+                                         ? QStringLiteral("源文件没有音轨")
+                                         : QStringLiteral("源文件音轨：%1").arg(names.join(QStringLiteral("、"))))
+                                  : QStringLiteral("无法读取音轨信息：%1").arg(media.error));
+}
+
 void ToolboxPage::browseInput()
 {
     const QString path = ui::openFileDialog(
@@ -528,6 +600,7 @@ void ToolboxPage::updateOutputSuggestion()
     case Compress: m_outputEdit->setText(suggestedOutput(input, QStringLiteral("_compressed"), QStringLiteral("mp4"))); break;
     case Gif: m_outputEdit->setText(suggestedOutput(input, QStringLiteral("_clip"), QStringLiteral("gif"))); break;
     case Watermark: m_outputEdit->setText(suggestedOutput(input, QStringLiteral("_watermark"), QStringLiteral("mp4"))); break;
+    case AudioExport: m_outputEdit->setText(suggestedOutput(input, QStringLiteral("_audio"), QStringLiteral("mp4"))); break;
     }
 }
 
@@ -648,6 +721,13 @@ void ToolboxPage::startJob()
         }
     }
 
+    if (m_operation == AudioExport && !m_audioSystemCheck->isChecked()
+        && !m_audioMicCheck->isChecked()) {
+        ui::warn(this, QStringLiteral("未选择音轨"),
+                 QStringLiteral("请至少勾选一条要导出的声音（系统声音或麦克风）。"));
+        return;
+    }
+
     m_batchIndex = 0;
     m_batchMode = m_batchQueue.size() > 1;
     m_lastOutput.clear();
@@ -672,7 +752,8 @@ void ToolboxPage::processNextBatch()
     if (m_batchMode) {
         const QString suffix = m_operation == Repair ? QStringLiteral("_fixed")
                                : m_operation == Watermark ? QStringLiteral("_watermark")
-                                                          : QStringLiteral("_out");
+                               : m_operation == AudioExport ? QStringLiteral("_audio")
+                                                            : QStringLiteral("_out");
         output = suggestedOutput(input, suffix, QStringLiteral("mp4"));
     } else {
         output = m_outputEdit->text().trimmed();
@@ -683,7 +764,8 @@ void ToolboxPage::processNextBatch()
                                    : m_operation == Trim ? QStringLiteral("_trim")
                                    : m_operation == Compress ? QStringLiteral("_compressed")
                                    : m_operation == Gif ? QStringLiteral("_clip")
-                                                        : QStringLiteral("_watermark");
+                                   : m_operation == AudioExport ? QStringLiteral("_audio")
+                                                                : QStringLiteral("_watermark");
             output = suggestedOutput(input, suffix, extension);
         }
     }
@@ -756,6 +838,20 @@ void ToolboxPage::processNextBatch()
                 file.write(config.text.toUtf8());
         }
         arguments = FFmpegTool::watermarkArguments(input, output, config, textFile);
+        break;
+    }
+    case AudioExport: {
+        const bool system = m_audioSystemCheck->isChecked() && m_media.systemAudioIndex >= 0;
+        const bool mic = m_audioMicCheck->isChecked() && m_media.micAudioIndex >= 0;
+        if (!system && !mic) {
+            // 跳过没有所选音轨的文件，批量任务继续处理下一个。
+            appendLog(QStringLiteral("源文件中没有可导出的所选音轨，已跳过：%1").arg(input));
+            processNextBatch();
+            return;
+        }
+        arguments = FFmpegTool::audioExportArguments(input, output, system, mic,
+                                                     m_media.systemAudioIndex,
+                                                     m_media.micAudioIndex);
         break;
     }
     }

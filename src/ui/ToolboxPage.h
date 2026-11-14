@@ -46,7 +46,8 @@ private:
         Trim = 2,
         Compress = 3,
         Gif = 4,
-        Watermark = 5
+        Watermark = 5,
+        AudioExport = 6
     };
 
     void buildUi();
@@ -56,6 +57,8 @@ private:
     QWidget *buildCompressPage();
     QWidget *buildGifPage();
     QWidget *buildWatermarkPage();
+    QWidget *buildAudioExportPage();
+    void refreshAudioTrackAvailability();
 
     void browseInput();
     void browseOutput();
@@ -112,6 +115,10 @@ private:
     QListWidget *m_batchList = nullptr;
     QComboBox *m_watermarkPresetCombo = nullptr;
     QColor m_watermarkColor = Qt::white;
+
+    QCheckBox *m_audioSystemCheck = nullptr;
+    QCheckBox *m_audioMicCheck = nullptr;
+    QLabel *m_audioTrackHint = nullptr;
 
     FFmpegTool *m_ffmpeg = nullptr;
     MediaInfo m_media;

@@ -43,6 +43,14 @@ public:
     static QStringList watermarkArguments(const QString &input, const QString &output,
                                           const WatermarkConfig &config,
                                           const QString &textFilePath);
+    // 按音轨导出：system/mic 表示是否把该音轨写入输出，index 为文件内的音轨序号
+    // （0 = 第一条音频流）。同时选择两条时混合成一条（系统 100% + 麦克风 -6 dB），
+    // 只选一条时直接挑选该音轨。两种情况视频流都直接复制，不重新编码。
+    // faststart=false 供本机预览缓存使用，省去 moov 重排的整文件二次写入。
+    static QStringList audioExportArguments(const QString &input, const QString &output,
+                                            bool system, bool mic,
+                                            int systemIndex, int micIndex,
+                                            bool faststart = true);
 
 signals:
     void started(const QString &jobName);

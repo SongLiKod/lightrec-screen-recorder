@@ -407,6 +407,12 @@ AVStream *MediaPipeline::addAudioStream(AVFormatContext *context, int track)
         return nullptr;
     avcodec_parameters_from_context(stream->codecpar, m_audioEncoder[track]);
     stream->time_base = AVRational{ 1, 1000 };
+    // 标注音轨角色：本软件的“音轨导出 / 音轨预览”与外部播放器据此识别哪条是
+    // 系统声音、哪条是麦克风；系统声音保持默认音轨，外部播放器默认只播它。
+    const QByteArray title = (track == 0 ? QStringLiteral("系统声音") : QStringLiteral("麦克风"))
+                                 .toUtf8();
+    av_dict_set(&stream->metadata, "title", title.constData(), 0);
+    stream->disposition = (track == 0) ? AV_DISPOSITION_DEFAULT : 0;
     return stream;
 }
 
@@ -859,6 +865,9 @@ bool MediaPipeline::remuxToFinal(QString *error)
         avcodec_parameters_copy(outStream->codecpar, inStream->codecpar);
         outStream->codecpar->codec_tag = 0;
         outStream->time_base = inStream->time_base;
+        // 保留音轨标题与默认标志，否则“音轨导出/预览”无法区分系统声音与麦克风。
+        av_dict_copy(&outStream->metadata, inStream->metadata, 0);
+        outStream->disposition = inStream->disposition;
         streamMap[i] = outStream->index;
     }
 
