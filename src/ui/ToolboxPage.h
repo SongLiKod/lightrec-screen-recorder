@@ -119,6 +119,7 @@ private:
     QCheckBox *m_audioSystemCheck = nullptr;
     QCheckBox *m_audioMicCheck = nullptr;
     QLabel *m_audioTrackHint = nullptr;
+    QString m_audioProbedInput; // 上次探测的输入：换文件才重置勾选，刷新不覆盖用户选择
 
     FFmpegTool *m_ffmpeg = nullptr;
     MediaInfo m_media;
